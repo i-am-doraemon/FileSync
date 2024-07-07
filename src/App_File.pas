@@ -20,6 +20,12 @@ type
     FProgressEvent: TFileCopyProgressEvent;
     FCompleteEvent: TFileCopyCompleteEvent;
     FErrorEvent   : TFileCopyErrorEvent;
+
+    FLastUpdated: Integer;
+
+    procedure FireErrorEvent;
+    procedure FireProgressEvent(Position, Size: Int64);
+    procedure FireCompleteEvent;
   protected
     procedure Execute; override;
   public
@@ -69,6 +75,38 @@ begin
   Self.FProgressEvent := ProgressEvent;
   Self.FCompleteEvent := CompleteEvent;
   Self.FErrorEvent    := ErrorEvent;
+
+  FLastUpdated := 0;
+end;
+
+procedure TDoRunInBackground.FireErrorEvent;
+begin
+  if Assigned(FErrorEvent) then
+    Synchronize(procedure begin
+      FerrorEvent(Self);
+    end);
+end;
+
+procedure TDoRunInBackground.FireProgressEvent(Position, Size: Int64);
+var
+  Percent: Integer;
+begin
+  Percent := Round(100 * (Position / Size));
+  if Percent > FLastUpdated then begin
+    if Assigned(FProgressEvent) then
+      Queue(procedure begin
+        FProgressEvent(Self, Position);
+      end);
+    FLastUpdated := Percent;
+  end;
+end;
+
+procedure TDoRunInBackground.FireCompleteEvent;
+begin
+  if Assigned(FCompleteEvent) then
+    Synchronize(procedure begin
+      FCompleteEvent(Self);
+    end);
 end;
 
 procedure TDoRunInBackground.Execute;
@@ -77,59 +115,40 @@ const
 var
   Source: TStream;
   Buffer: TBytes;
-  Count, Progress, Percent: Integer;
+  Count: Integer;
   Position, Size: Int64;
 begin
   Source := nil;
   try
     Source := TFileStream.Create(FFileName1, fmOpenRead);
   except
-    if Assigned(FErrorEvent) then
-      Synchronize(procedure begin
-        FErrorEvent(Self);
-      end);
-    Exit;
+    try
+      Exit;
+    finally
+      FireErrorEvent;
+    end;
   end;
 
   try
     SetLength(Buffer, MAX_READ_SIZE);
 
-    Progress := 0;
     Position := 0;
     Size := Source.Size;
 
-    while not Terminated do begin
+    while not Terminated and (Position < Size) do begin
       Count := Source.Read(
-                       Buffer, Length(Buffer));
-
+                     Buffer, Length(Buffer));
       Inc(Position, Count);
-      if Position >= Size then
-        break;
 
-      Percent := Round(100 * (Position / Size));
-      if Percent > Progress then begin
-        if Assigned(FProgressEvent) then
-          Queue(procedure begin
-            FProgressEvent(Self, Position);
-          end);
-
-        Progress := Percent;
-      end;
+      Self.FireProgressEvent(Position, Size);
     end;
 
     Source.Free;
-
-    if Position >= Size then
-      if Assigned(FCompleteEvent) then
-        Synchronize(procedure begin
-          FCompleteEvent(Self);
-        end);
+    if not Terminated then
+      FireCompleteEvent;
   except
     try
-      if Assigned(FErrorEvent) then
-        Synchronize(procedure begin
-          FErrorEvent(Self);
-        end);
+      FireErrorEvent;
     finally
       Source.Free;
     end;
