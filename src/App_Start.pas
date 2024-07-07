@@ -72,6 +72,7 @@ begin
   Grid.Cells[4, 0] := 'ハッシュ値(SHA256)';
 
   FShowProgress := TShowProgress.Create(Self);
+  FShowProgress.OnCancel := OnCancelFileCopy;
 end;
 
 procedure TStart.StartFileCopy(FolderNameA, FolderNameB, FileName: string);
