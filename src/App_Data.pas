@@ -39,6 +39,9 @@ type
     FProgressEvent: TFileMetaProgressEvent;
     FCompleteEvent: TFileMetaCompleteEvent;
     FErrorEvent: TFileMetaErrorEvent;
+    procedure FireErrorEvent(Cause: string);
+    procedure FireProgressEvent(Count, Total: Integer);
+    procedure FireCompleteEvent(FileMetaDynArray: TFileMetaDynArray);
   protected
     procedure Execute; override;
   public
@@ -174,39 +177,57 @@ begin
   Self.FErrorEvent := ErrorEvent;
 end;
 
+procedure TDoRunInBackground.FireErrorEvent(Cause: string);
+begin
+  if Assigned(FErrorEvent) then
+    Synchronize(procedure begin
+      FErrorEvent(Self, Cause);
+    end);
+end;
+
+procedure TDoRunInBackground.FireProgressEvent(Count, Total: Integer);
+begin
+  if Assigned(FProgressEvent) then
+    Synchronize(procedure begin
+      FProgressEvent(Self, Round(100 * (Count / Total)));
+    end);
+end;
+
+procedure TDoRunInBackground.FireCompleteEvent(FileMetaDynArray: TFileMetaDynArray);
+begin
+  if Assigned(FCompleteEvent) then
+    Synchronize(procedure begin
+      FCompleteEvent(Self, FileMetaDynArray);
+    end);
+end;
+
 procedure TDoRunInBackground.Execute;
 var
-  FileProperties: TFileMetaDynArray;
+  FileMetaDynArray: TFileMetaDynArray;
   Count: Integer;
 begin
-  SetLength(FileProperties, Length(FFiles));
+  SetLength(FileMetaDynArray, Length(FFiles));
 
   Count := 0;
   for var Each in FFiles do begin
-    if Terminated then
-      Exit;
+    if Terminated then Exit;
 
     try
-      FileProperties[Count] := TFileMeta.Create(Each);
+      FileMetaDynArray[Count] :=
+                       TFileMeta.Create(Each);
       Inc(Count);
     except
-      if Assigned(FErrorEvent) then
-        Synchronize(procedure begin
-          FErrorEvent(Self, Each);
-        end);
-      Exit;
+      try
+        Exit;
+      finally
+        FireErrorEvent(Each);
+      end;
     end;
 
-    if Assigned(FProgressEvent) then
-      Synchronize(procedure begin
-        FProgressEvent(Self, Length(FFiles) div Count);
-      end);
+    FireProgressEvent(Count, Length(FFiles));
   end;
 
-  if Assigned(FCompleteEvent) then
-    Synchronize(procedure begin
-      FCompleteEvent(Self, FileProperties);
-    end);
+  FireCompleteEvent(FileMetaDynArray)
 end;
 
 constructor TFileMetaExecutor.Create(Files: TStringDynArray);
