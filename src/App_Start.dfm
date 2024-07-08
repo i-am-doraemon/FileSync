@@ -11,6 +11,7 @@ object Start: TStart
   Font.Name = 'Segoe UI'
   Font.Style = []
   Menu = MainMenu
+  OnClose = OnClose
   TextHeight = 15
   object Grid: TStringGrid
     Left = 0
@@ -44,6 +45,10 @@ object Start: TStart
       object DoTerminateApp: TMenuItem
         Caption = #32066#20102
         OnClick = OnDoTerminateApp
+      end
+      object DoTest: TMenuItem
+        Caption = #12486#12473#12488
+        OnClick = OnDoTest
       end
     end
   end

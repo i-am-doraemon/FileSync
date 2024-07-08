@@ -14,15 +14,20 @@ uses
   System.SysUtils,
   System.Variants,
 
+  Vcl.ComCtrls,
   Vcl.Controls,
   Vcl.Dialogs,
   Vcl.Forms,
   Vcl.Graphics,
+  Vcl.Grids,
+  Vcl.Menus,
+  Vcl.StdCtrls,
 
   Winapi.Messages,
-  Winapi.Windows, Vcl.Menus, Vcl.StdCtrls, Vcl.Grids, Vcl.ComCtrls,
-  Vcl.BaseImageCollection, Vcl.ImageCollection, System.ImageList, Vcl.ImgList;
-
+  Winapi.Windows,
+// --- テスト ---
+  System.SyncObjs;
+// --- テスト ---
 type
   TStart = class(TForm)
     MainMenu: TMainMenu;
@@ -34,12 +39,15 @@ type
     PopupMenu: TPopupMenu;
     DoCopyLeftToRight: TMenuItem;
     DoCopyRigthToLeft: TMenuItem;
+    DoTest: TMenuItem;
     procedure OnDoOpen(Sender: TObject);
     procedure OnDoTerminateApp(Sender: TObject);
     procedure OnDrawCell(Sender: TObject; ACol, ARow: Integer; Rect: TRect; State: TGridDrawState);
     procedure OnMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure OnDoCopyLeftToRight(Sender: TObject);
     procedure OnDoCopyRigthToLeft(Sender: TObject);
+    procedure OnDoTest(Sender: TObject);
+    procedure OnClose(Sender: TObject; var Action: TCloseAction);
   private
     { Private 宣言 }
     FFolderComparator: TFolderComparator;
@@ -73,6 +81,10 @@ begin
 
   FShowProgress := TShowProgress.Create(Self);
   FShowProgress.OnCancel := OnCancelFileCopy;
+
+  FFileCopy := TFileCopy.Create;
+  FFileCopy.OnProgress := OnUpdateFileCopy;
+  FFileCopy.OnComplete := OnFinishFileCopy;
 end;
 
 procedure TStart.StartFileCopy(FolderNameA, FolderNameB, FileName: string);
@@ -80,11 +92,11 @@ begin
   if MessageDlg('ファイルをコピーしますか？', mtCustom, [mbOK, mbCancel], 0) = mrCancel then
     Exit;
 
-  FreeAndNil(FFileCopy);
-
   try
-  FFileCopy := TFileCopy.Create(TPath.Combine(FolderNameA, FileName),
-                                TPath.Combine(FolderNameB, FileName));
+  var OK :=  FFileCopy.Start(TPath.Combine(FolderNameA, FileName),
+                             TPath.Combine(FolderNameB, FileName));
+  if not OK then
+    ShowMessage('既に別のファイルコピーが進行中です。');
   except
     on E: Exception do
       try
@@ -93,11 +105,6 @@ begin
         ShowMessage(E.Message);
       end;
   end;
-
-  FFileCopy.OnProgress := OnUpdateFileCopy;
-  FFileCopy.OnComplete := OnFinishFileCopy;
-
-  FFileCopy.Start;
 
   FShowProgress.Description := Format('「%s」を「%s」から「%s」へコピーしています...', [FileName, FolderNameA, FolderNameB]);
   FShowProgress.ShowModal;
@@ -126,6 +133,11 @@ end;
 procedure TStart.OnCancelFileCopy(Sender: TObject);
 begin
   FFileCopy.Cancel;
+end;
+
+procedure TStart.OnClose(Sender: TObject; var Action: TCloseAction);
+begin
+  FFileCopy.Free;
 end;
 
 procedure TStart.OnDoCopyLeftToRight(Sender: TObject);
@@ -208,6 +220,21 @@ end;
 procedure TStart.OnDoTerminateApp(Sender: TObject);
 begin
   Close;
+end;
+
+procedure TStart.OnDoTest(Sender: TObject);
+var
+  Semaphore: TSemaphore;
+begin
+  Semaphore := TSemaphore.Create(nil, 3, 3, '');
+  try
+//    Semaphore.WaitFor(10 * 1000);
+//    Semaphore.WaitFor(10 * 1000);
+//    Semaphore.WaitFor(10 * 1000);
+//    Semaphore.WaitFor(10 * 1000);;  // ここで待機状態へ移行
+  finally
+    Semaphore.Free;
+  end;
 end;
 
 procedure TStart.OnDrawCell(Sender: TObject; ACol, ARow: Integer; Rect: TRect; State: TGridDrawState);
