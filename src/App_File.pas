@@ -25,7 +25,7 @@ type
   TBlockingQueue = class(TObject)
   private
     const
-    CHUNK_SIZE = 8 * 1024 * 1024; // 16MByte
+    CHUNK_SIZE = 8 * 1024 * 1024;
     var
     FSize: Integer;
     FHead: Integer;
@@ -79,6 +79,7 @@ type
   TDoRunInBackground2 = class(TThread)
   private
     FBlockingQueue: TBlockingQueue;
+    procedure FireCompleteEvent(Value: string);
   protected
     procedure Execute; override;
   public
@@ -166,11 +167,14 @@ end;
 
 procedure TDoRunInBackground1.Execute;
 const
+  YES = Boolean(1); // ê^
+  NON = Boolean(0); // ãU
   MAX_READ_SIZE= 16 * 1024 * 1024;
 var
   Source: TStream;
   P: PChunk;
   Position, Size: Int64;
+  Done: Boolean;
 begin
   Source := nil;
   try
@@ -184,23 +188,34 @@ begin
   end;
 
   try
+    Done := False;
     Position := 0;
     Size := Source.Size;
 
-    while not Terminated and (Position < Size) do begin
+    while not Terminated
+                     and not Done do begin
       P := FBlockingQueue.GetWritableChunk;
+      if P = nil then
+        continue;
 
       P^.Size := Source.Read(
                   P^.Data, Length(P.Data));
 
       Inc(Position, P^.Size);
+      if Position < Size then
+        Done := NON
+      else
+        Done := YES;
+
+      P^.Last := Done;
       FBlockingQueue.Enqueue;
 
-      Self.FireProgressEvent(Position, Size);
+      Self.
+         FireProgressEvent(Position, Size);
     end;
 
     Source.Free;
-    if not Terminated then
+    if Done then
       FireCompleteEvent;
   except
     try
@@ -219,22 +234,40 @@ begin
   FBlockingQueue := BlockingQueue;
 end;
 
+procedure TDoRunInBackground2.FireCompleteEvent(Value: string);
+begin
+  Synchronize(procedure begin
+    ShowMessage(Value);
+  end);
+end;
+
 procedure TDoRunInBackground2.Execute;
 var
+  Done: Boolean;
   P: PChunk;
   Hash: THashSHA2;
 begin
   Hash := THashSHA2.Create(SHA256);
-  repeat
-    P := FBlockingQueue.GetReadableChunk;
-    Hash.Update(P^.Data, P^.Size);
-    FBlockingQueue.Dequeue;
-  until Self.Terminated or (P^.Size < Length(P^.Data));
 
-  if not Terminated then
-    Synchronize(procedure begin
-      ShowMessage(Hash.HashAsString);
-    end);
+  try
+    Done := False;
+    while not Terminated
+                      and not Done do begin
+      P := FBlockingQueue.GetReadableChunk;
+      if P = nil then
+        continue;
+
+      Hash.Update(P^.Data, P^.Size);
+      Done := P^.Last;
+      FBlockingQueue.Dequeue;
+    end;
+
+    if Done then
+      FireCompleteEvent(Hash.HashAsString);
+  except
+    on E: Exception do
+    ;
+  end;
 end;
 
 constructor TFileCopy.Create;
@@ -255,8 +288,8 @@ end;
 function TFileCopy.Start(FullPath1, FullPath2: string): Boolean;
 const
   Y = True;
-  YES = True;
-  NON = False;
+  YES = Boolean(1);
+  NON = Boolean(0);
 var
   Running: Boolean;
 begin
@@ -278,6 +311,12 @@ begin
       Running := Y
     else
       FThread1.Free;
+
+  if Assigned(FThread2) then
+    if FThread2.Started and not FThread2.Finished then
+      Running := Y
+    else
+      FThread2.Free;
 
   if Running then
     Result := NON
@@ -312,10 +351,6 @@ begin
     end;
     FreeAndNil(FThread1);
   end;
-
-  P := FBlockingQueue.GetWritableChunk;
-  P^.Size := 0;
-  FBlockingQueue.Enqueue;
 
   if Assigned(FThread2) then begin
     if FThread2.Started and not FThread2.Finished then begin
@@ -361,12 +396,20 @@ begin
 end;
 
 function TBlockingQueue.GetWritableChunk: PChunk;
+const
+  TIMEOUT = 500; // [ms]
+var
+  WhyReturned: TWaitResult;
 begin
-  FGetWritableChunk.Acquire;
+//FGetWritableChunk.Acquire;
+  WhyReturned := FGetWritableChunk.WaitFor(TIMEOUT);
 
-  FLock.Enter;
-  Result := @FChunkDynArray[FHead];
-  FLock.Leave;
+  if WhyReturned = wrSignaled then begin
+    FLock.Enter;
+    Result := @FChunkDynArray[FHead];
+    FLock.Leave;
+  end
+  else Result := nil;
 end;
 
 procedure TBlockingQueue.Enqueue;
@@ -379,12 +422,20 @@ begin
 end;
 
 function TBlockingQueue.GetReadableChunk: PChunk;
+const
+  TIMEOUT = 500; // [ms]
+var
+  WhyReturned: TWaitResult;
 begin
-  FGetReadableChunk.Acquire;
+//FGetReadableChunk.Acquire;
+  WhyReturned := FGetReadableChunk.WaitFor(TIMEOUT);
 
-  FLock.Enter;
-  Result := @FChunkDynArray[FTail];
-  FLock.Leave;
+  if WhyReturned = wrSignaled then begin
+    FLock.Enter;
+    Result := @FChunkDynArray[FTail];
+    FLock.Leave;
+  end
+  else Result := nil;
 end;
 
 procedure TBlockingQueue.Dequeue;
