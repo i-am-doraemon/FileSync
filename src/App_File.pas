@@ -45,6 +45,8 @@ type
 
     procedure Enqueue;
     procedure Dequeue;
+
+    procedure Reset;
   end;
 
   TFileCopyProgressEvent = reference to procedure(Sender: TObject; CopiedSize: Int64);
@@ -345,6 +347,8 @@ begin
   else begin
     Result := YES;
 
+    FBlockingQueue.Reset;
+
     Self.FFullPath1 := FullPath1;
     Self.FFullPath2 := FullPath2;
     FCopySize := TFile.GetSize(FullPath1);
@@ -418,6 +422,29 @@ begin
   FChunkDynArray := nil;
 
   inherited Destroy;
+end;
+
+procedure TBlockingQueue.Reset;
+const
+  TIMEOUT = 10; // [ms]
+var
+  WhyReturned: TWaitResult;
+begin
+  // プロデューサーが利用可能なリソースを０にする
+  repeat
+    WhyReturned := FGetWritableChunk.WaitFor(TIMEOUT);
+  until WhyReturned = wrTimeout;
+
+  // コンシューマーが利用可能なリソースを０にする
+  repeat
+    WhyReturned := FGetReadableChunk.WaitFor(TIMEOUT);
+  until WhyReturned = wrTimeout;
+
+  // プロデューサーが利用可能なリソースはN個に設定
+  FGetWritableChunk.Release(FSize);
+
+  FHead := 0;
+  FTail := 0;
 end;
 
 function TBlockingQueue.GetWritableChunk: PChunk;
