@@ -53,8 +53,9 @@ type
     FLastUpdateTime: TDateTime;
     FLastUpdateSize: Int64;
     procedure OnUpdateFileCopy(Sender: TObject; CopiedBytes: Int64);
-    procedure OnFinishFileCopy(Sender: TObject; Digest: string);
+    procedure OnFinishFileCopy(Sender: TObject);
     procedure OnCancelFileCopy(Sender: TObject);
+    procedure OnFailedFileCopy(Sender: TObject);
     procedure OnCompare(Sender: TObject; Folder1, Folder2: string);
     procedure OnDoneCompareFolders(Sender: TObject; IdenticalA, IdenticalB, Left, Right: TList<TFileMeta>);
     procedure StartFileCopy(FolderNameA, FolderNameB, FileName: string);
@@ -144,16 +145,20 @@ begin
   FShowProgress.Position := Round(100 * (CopiedBytes / FFileCopy.CopySize));
 end;
 
-procedure TStart.OnFinishFileCopy(Sender: TObject; Digest: string);
+procedure TStart.OnFinishFileCopy(Sender: TObject);
 begin
   StatusBar.SimpleText := string.Empty;
   FShowProgress.ModalResult := mrOK;
-  ShowMessage(Digest);
 end;
 
 procedure TStart.OnCancelFileCopy(Sender: TObject);
 begin
   FFileCopy.Cancel;
+end;
+
+procedure TStart.OnFailedFileCopy(Sender: TObject);
+begin
+  ShowMessage('ファイルのコピーに失敗しました...');
 end;
 
 procedure TStart.OnClose(Sender: TObject; var Action: TCloseAction);

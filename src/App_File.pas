@@ -47,8 +47,8 @@ type
     procedure Dequeue;
   end;
 
-  TFileCopyCompleteEvent = reference to procedure(Sender: TObject; Digest: string);
   TFileCopyProgressEvent = reference to procedure(Sender: TObject; CopiedSize: Int64);
+  TFileCopyCompleteEvent = reference to procedure(Sender: TObject);
   TFileCopyErrorEvent    = reference to procedure(Sender: TObject);
 
   TDoRunInBackground1 = class(TThread)
@@ -239,39 +239,56 @@ procedure TDoRunInBackground2.FireCompleteEvent(Digest: string);
 begin
   if Assigned(FCompleteEvent) then
     Synchronize(procedure begin
-      FCompleteEvent(Self, Digest);
+      FCompleteEvent(Self);
     end);
 end;
 
 procedure TDoRunInBackground2.Execute;
 var
+  Target: TStream;
   Done: Boolean;
+  Count: Integer;
   CopiedSize: Int64;
   P: PChunk;
-  Hash: THashSHA2;
 begin
-  Hash := THashSHA2.Create(SHA256);
+  Target := nil;
+  try
+    Target := TFileStream.Create(FFileName, fmCreate);
+  except
+    try
+      Exit;
+    finally
+      FireErrorEvent;
+    end;
+  end;
+
   CopiedSize := 0;
   try
     Done := False;
-    while not Terminated
-                      and not Done do begin
+    while not Terminated and not Done do begin
       P := FBlockingQueue.GetReadableChunk;
       if P = nil then
         continue;
 
-      Hash.Update(P^.Data, P^.Size);
-      Inc(CopiedSize, P^.Size);
+      Count := Target.Write(P^.Data, P^.Size);
+      Inc(CopiedSize, Count);
       Done := P^.Last;
       FBlockingQueue.Dequeue;
 
       FireProgressEvent(CopiedSize);
     end;
 
-    if Done then
-      FireCompleteEvent(Hash.HashAsString);
+    Target.Free;
+    if CopiedSize < FCopySize then
+      FireErrorEvent
+    else if Done then
+      FireCompleteEvent('ƒRƒs[‚µ‚Ü‚µ‚½....');
   except on E: Exception do
-    FireErrorEvent;
+    try
+      FireErrorEvent;
+    finally
+      Target.Free;
+    end;
   end;
 end;
 
