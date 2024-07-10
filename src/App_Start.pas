@@ -25,10 +25,8 @@ uses
   Vcl.StdCtrls,
 
   Winapi.Messages,
-  Winapi.Windows,
-// --- テスト ---
-  System.SyncObjs;
-// --- テスト ---
+  Winapi.Windows;
+
 type
   TStart = class(TForm)
     MainMenu: TMainMenu;
@@ -40,14 +38,12 @@ type
     PopupMenu: TPopupMenu;
     DoCopyLeftToRight: TMenuItem;
     DoCopyRigthToLeft: TMenuItem;
-    DoTest: TMenuItem;
     procedure OnDoOpen(Sender: TObject);
     procedure OnDoTerminateApp(Sender: TObject);
     procedure OnDrawCell(Sender: TObject; ACol, ARow: Integer; Rect: TRect; State: TGridDrawState);
     procedure OnMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure OnDoCopyLeftToRight(Sender: TObject);
     procedure OnDoCopyRigthToLeft(Sender: TObject);
-    procedure OnDoTest(Sender: TObject);
     procedure OnClose(Sender: TObject; var Action: TCloseAction);
   private
     { Private 宣言 }
@@ -245,21 +241,6 @@ end;
 procedure TStart.OnDoTerminateApp(Sender: TObject);
 begin
   Close;
-end;
-
-procedure TStart.OnDoTest(Sender: TObject);
-var
-  Semaphore: TSemaphore;
-begin
-  Semaphore := TSemaphore.Create(nil, 3, 3, '');
-  try
-//    Semaphore.WaitFor(10 * 1000);
-//    Semaphore.WaitFor(10 * 1000);
-//    Semaphore.WaitFor(10 * 1000);
-//    Semaphore.WaitFor(10 * 1000);;  // ここで待機状態へ移行
-  finally
-    Semaphore.Free;
-  end;
 end;
 
 procedure TStart.OnDrawCell(Sender: TObject; ACol, ARow: Integer; Rect: TRect; State: TGridDrawState);

@@ -2,8 +2,8 @@ object Start: TStart
   Left = 0
   Top = 0
   Caption = 'FileSync'
-  ClientHeight = 440
-  ClientWidth = 620
+  ClientHeight = 437
+  ClientWidth = 608
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clWindowText
@@ -16,8 +16,8 @@ object Start: TStart
   object Grid: TStringGrid
     Left = 0
     Top = 0
-    Width = 620
-    Height = 421
+    Width = 608
+    Height = 418
     Align = alClient
     RowCount = 10
     Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRangeSelect, goColSizing, goColMoving, goThumbTracking, goFixedRowDefAlign]
@@ -27,8 +27,8 @@ object Start: TStart
   end
   object StatusBar: TStatusBar
     Left = 0
-    Top = 421
-    Width = 620
+    Top = 418
+    Width = 608
     Height = 19
     Panels = <>
     SimplePanel = True
@@ -45,10 +45,6 @@ object Start: TStart
       object DoTerminateApp: TMenuItem
         Caption = #32066#20102
         OnClick = OnDoTerminateApp
-      end
-      object DoTest: TMenuItem
-        Caption = #12486#12473#12488
-        OnClick = OnDoTest
       end
     end
   end
