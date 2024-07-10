@@ -57,7 +57,7 @@ type
     FLastUpdateTime: TDateTime;
     FLastUpdateSize: Int64;
     procedure OnUpdateFileCopy(Sender: TObject; CopiedBytes: Int64);
-    procedure OnFinishFileCopy(Sender: TObject);
+    procedure OnFinishFileCopy(Sender: TObject; Digest: string);
     procedure OnCancelFileCopy(Sender: TObject);
     procedure OnCompare(Sender: TObject; Folder1, Folder2: string);
     procedure OnDoneCompareFolders(Sender: TObject; IdenticalA, IdenticalB, Left, Right: TList<TFileMeta>);
@@ -148,10 +148,11 @@ begin
   FShowProgress.Position := Round(100 * (CopiedBytes / FFileCopy.CopySize));
 end;
 
-procedure TStart.OnFinishFileCopy(Sender: TObject);
+procedure TStart.OnFinishFileCopy(Sender: TObject; Digest: string);
 begin
   StatusBar.SimpleText := string.Empty;
   FShowProgress.ModalResult := mrOK;
+  ShowMessage(Digest);
 end;
 
 procedure TStart.OnCancelFileCopy(Sender: TObject);

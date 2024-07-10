@@ -47,43 +47,45 @@ type
     procedure Dequeue;
   end;
 
-  TFileCopyCompleteEvent = reference to procedure(Sender: TObject);
+  TFileCopyCompleteEvent = reference to procedure(Sender: TObject; Digest: string);
   TFileCopyProgressEvent = reference to procedure(Sender: TObject; CopiedSize: Int64);
   TFileCopyErrorEvent    = reference to procedure(Sender: TObject);
 
   TDoRunInBackground1 = class(TThread)
   private
     FBlockingQueue: TBlockingQueue;
-
     FFileName: string;
-
-    FProgressEvent: TFileCopyProgressEvent;
-    FCompleteEvent: TFileCopyCompleteEvent;
     FErrorEvent   : TFileCopyErrorEvent;
-
-    FLastUpdated: Integer;
-
     procedure FireErrorEvent;
-    procedure FireProgressEvent(Position, Size: Int64);
-    procedure FireCompleteEvent;
   protected
     procedure Execute; override;
   public
     constructor Create(BlockingQueue: TBlockingQueue;
                        FileName: string;
-                       ProgressEvent: TFileCopyProgressEvent;
-                       CompleteEvent: TFileCopyCompleteEvent;
                        ErrorEvent   : TFileCopyErrorEvent);
   end;
 
   TDoRunInBackground2 = class(TThread)
   private
     FBlockingQueue: TBlockingQueue;
-    procedure FireCompleteEvent(Value: string);
+    FFileName: string;
+    FCopySize: Int64;
+    FLastUpdateValue: Integer;
+    FProgressEvent: TFileCopyProgressEvent;
+    FCompleteEvent: TFileCopyCompleteEvent;
+    FErrorEvent: TFileCopyErrorEvent;
+    procedure FireErrorEvent;
+    procedure FireProgressEvent(CopiedSize: Int64);
+    procedure FireCompleteEvent(Digest: string);
   protected
     procedure Execute; override;
   public
-    constructor Create(BlockingQueue: TBlockingQueue);
+    constructor Create(BlockingQueue: TBlockingQueue;
+                       FileName1: string;
+                       FileName2: string;
+                       ErrorEvent: TFileCopyErrorEvent;
+                       ProgressEvent: TFileCopyProgressEvent;
+                       CompleteEvent: TFileCopyCompleteEvent);
   end;
 
   TFileCopy = class(TObject)
@@ -116,8 +118,6 @@ implementation
 
 constructor TDoRunInBackground1.Create(BlockingQueue: TBlockingQueue;
                                        FileName: string;
-                                       ProgressEvent: TFileCopyProgressEvent;
-                                       CompleteEvent: TFileCopyCompleteEvent;
                                        ErrorEvent   : TFileCopyErrorEvent);
 const
   SUSPEND_AFTER_THREAD_CREATED = True;
@@ -125,14 +125,8 @@ begin
   inherited Create(SUSPEND_AFTER_THREAD_CREATED);
 
   Self.FBlockingQueue := BlockingQueue;
-
   Self.FFileName := FileName;
-
-  Self.FProgressEvent := ProgressEvent;
-  Self.FCompleteEvent := CompleteEvent;
   Self.FErrorEvent    := ErrorEvent;
-
-  FLastUpdated := 0;
 end;
 
 procedure TDoRunInBackground1.FireErrorEvent;
@@ -140,28 +134,6 @@ begin
   if Assigned(FErrorEvent) then
     Synchronize(procedure begin
       FerrorEvent(Self);
-    end);
-end;
-
-procedure TDoRunInBackground1.FireProgressEvent(Position, Size: Int64);
-var
-  Percent: Integer;
-begin
-  Percent := Round(100 * (Position / Size));
-  if Percent > FLastUpdated then begin
-    if Assigned(FProgressEvent) then
-      Queue(procedure begin
-        FProgressEvent(Self, Position);
-      end);
-    FLastUpdated := Percent;
-  end;
-end;
-
-procedure TDoRunInBackground1.FireCompleteEvent;
-begin
-  if Assigned(FCompleteEvent) then
-    Synchronize(procedure begin
-      FCompleteEvent(Self);
     end);
 end;
 
@@ -209,14 +181,9 @@ begin
 
       P^.Last := Done;
       FBlockingQueue.Enqueue;
-
-      Self.
-         FireProgressEvent(Position, Size);
     end;
 
     Source.Free;
-    if Done then
-      FireCompleteEvent;
   except
     try
       FireErrorEvent;
@@ -226,29 +193,65 @@ begin
   end;
 end;
 
-constructor TDoRunInBackground2.Create(BlockingQueue: TBlockingQueue);
+constructor TDoRunInBackground2.Create(BlockingQueue: TBlockingQueue;
+                                       FileName1: string;
+                                       FileName2: string;
+                                       ErrorEvent: TFileCopyErrorEvent;
+                                       ProgressEvent: TFileCopyProgressEvent;
+                                       CompleteEvent: TFileCopyCompleteEvent);
 const
   SUSPEND_AFTER_THREAD_CREATED = True;
 begin
   inherited Create(SUSPEND_AFTER_THREAD_CREATED);
   FBlockingQueue := BlockingQueue;
+
+  FCopySize := TFile.GetSize(FileName1);
+  FFileName := FileName2;
+
+  FProgressEvent := ProgressEvent;
+  FCompleteEvent := CompleteEvent;
+  FErrorEvent := ErrorEvent;
 end;
 
-procedure TDoRunInBackground2.FireCompleteEvent(Value: string);
+procedure TDoRunInBackground2.FireErrorEvent;
 begin
-  Synchronize(procedure begin
-    ShowMessage(Value);
-  end);
+  if Assigned(FErrorEvent) then
+    Synchronize(procedure begin
+      FErrorEvent(Self);
+    end);
+end;
+
+procedure TDoRunInBackground2.FireProgressEvent(CopiedSize: Int64);
+var
+  Percent: Integer;
+begin
+  Percent := Round(100 * (CopiedSize / FCopySize));
+  if Percent > FLastUpdateValue then begin
+    if Assigned(FProgressEvent) then
+      Queue(procedure begin
+        FProgressEvent(Self, CopiedSize);
+      end);
+    FLastUpdateValue := Percent;
+  end;
+end;
+
+procedure TDoRunInBackground2.FireCompleteEvent(Digest: string);
+begin
+  if Assigned(FCompleteEvent) then
+    Synchronize(procedure begin
+      FCompleteEvent(Self, Digest);
+    end);
 end;
 
 procedure TDoRunInBackground2.Execute;
 var
   Done: Boolean;
+  CopiedSize: Int64;
   P: PChunk;
   Hash: THashSHA2;
 begin
   Hash := THashSHA2.Create(SHA256);
-
+  CopiedSize := 0;
   try
     Done := False;
     while not Terminated
@@ -258,15 +261,17 @@ begin
         continue;
 
       Hash.Update(P^.Data, P^.Size);
+      Inc(CopiedSize, P^.Size);
       Done := P^.Last;
       FBlockingQueue.Dequeue;
+
+      FireProgressEvent(CopiedSize);
     end;
 
     if Done then
       FireCompleteEvent(Hash.HashAsString);
-  except
-    on E: Exception do
-    ;
+  except on E: Exception do
+    FireErrorEvent;
   end;
 end;
 
@@ -329,11 +334,14 @@ begin
 
     FThread1 := TDoRunInBackground1.Create(FBlockingQueue,
                                            FFullPath1,
-                                           FOnProgress,
-                                           FOnComplete,
                                            FOnError);
 
-    FThread2 := TDoRunInBackground2.Create(FBlockingQueue);
+    FThread2 := TDoRunInBackground2.Create(FBlockingQueue,
+                                           FFullPath1,
+                                           FFullPath2,
+                                           FOnError,
+                                           FOnProgress,
+                                           FOnComplete);
 
     FThread1.Start;
     FThread2.Start;
