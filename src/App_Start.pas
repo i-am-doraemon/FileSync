@@ -85,6 +85,7 @@ begin
   FFileCopy := TFileCopy.Create;
   FFileCopy.OnProgress := OnUpdateFileCopy;
   FFileCopy.OnComplete := OnFinishFileCopy;
+  FFileCopy.OnError    := OnFailedFileCopy;
 end;
 
 procedure TStart.StartFileCopy(FolderNameA, FolderNameB, FileName: string);
