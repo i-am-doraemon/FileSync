@@ -12,6 +12,7 @@ uses
   System.Generics.Collections,
   System.IOUtils,
   System.SysUtils,
+  System.TimeSpan,
   System.Variants,
 
   Vcl.ComCtrls,
@@ -53,7 +54,9 @@ type
     FFolderComparator: TFolderComparator;
     FShowProgress: TShowProgress;
     FFileCopy: TFileCopy;
-    procedure OnUpdateFileCopy(Sender: TObject; CopiedSize: Int64);
+    FLastUpdateTime: TDateTime;
+    FLastUpdateSize: Int64;
+    procedure OnUpdateFileCopy(Sender: TObject; CopiedBytes: Int64);
     procedure OnFinishFileCopy(Sender: TObject);
     procedure OnCancelFileCopy(Sender: TObject);
     procedure OnCompare(Sender: TObject; Folder1, Folder2: string);
@@ -93,17 +96,18 @@ begin
     Exit;
 
   try
-  var OK :=  FFileCopy.Start(TPath.Combine(FolderNameA, FileName),
-                             TPath.Combine(FolderNameB, FileName));
-  if not OK then
-    ShowMessage('既に別のファイルコピーが進行中です。');
-  except
-    on E: Exception do
-      try
-        Exit;
-      finally
-        ShowMessage(E.Message);
-      end;
+    FLastUpdateTime := Now;
+    FLastUpdateSize := 000;
+    var OK :=  FFileCopy.Start(TPath.Combine(FolderNameA, FileName),
+                               TPath.Combine(FolderNameB, FileName));
+    if not OK then
+      ShowMessage('既に別のファイルコピーが進行中です。');
+  except on E: Exception do
+    try
+      Exit;
+    finally
+      ShowMessage(E.Message);
+    end;
   end;
 
   FShowProgress.Description := Format('「%s」を「%s」から「%s」へコピーしています...', [FileName, FolderNameA, FolderNameB]);
@@ -119,14 +123,34 @@ begin
   OpenFolder.ShowModal;
 end;
 
-procedure TStart.OnUpdateFileCopy(Sender: TObject; CopiedSize: Int64);
+procedure TStart.OnUpdateFileCopy(Sender: TObject; CopiedBytes: Int64);
+var
+  CurrentTime: TDateTime;
+  Elapsed: TTimeSpan;
+  Increment: Double;
+  Throughput: Double;
 begin
-  FShowProgress.Position := Round(100 *
-                                   (CopiedSize / FFileCopy.CopySize));
+  CurrentTime := Now;
+
+  // ０除算を防止するため経過時間に１ミリ秒を加える
+  Elapsed := TTimeSpan.Subtract(CurrentTime, FLastUpdateTime)
+                                                + TTimeSpan.FromMilliseconds(1);
+  Increment := CopiedBytes - FLastUpdateSize;
+
+  Throughput := Increment / Elapsed.Milliseconds / 1000.0; // 単位はMByte/sに注意
+
+  StatusBar.SimpleText :=
+     Format('ファイルをコピー中です。（スループット: %.1f[MB/s]）', [Throughput]);
+
+  FLastUpdateTime := CurrentTime;
+  FLastUpdateSize := CopiedBytes;
+
+  FShowProgress.Position := Round(100 * (CopiedBytes / FFileCopy.CopySize));
 end;
 
 procedure TStart.OnFinishFileCopy(Sender: TObject);
 begin
+  StatusBar.SimpleText := string.Empty;
   FShowProgress.ModalResult := mrOK;
 end;
 
