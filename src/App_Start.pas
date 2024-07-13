@@ -5,6 +5,7 @@ interface
 uses
   App_Data,
   App_File,
+  App_Utilities,
   App_View_OpenFolder,
   App_View_ShowProgress,
 
@@ -52,13 +53,16 @@ type
     FFileCopy: TFileCopy;
     FLastUpdateTime: TDateTime;
     FLastUpdateSize: Int64;
+    FQueue: TQueue<TSourceDestination>;
+    FDelayCall: TDelayCall;
+    function ContainAll(Col, Top, Bottom: Integer; Key: string): Boolean;
+    procedure StartCopyFile;
     procedure OnUpdateFileCopy(Sender: TObject; CopiedBytes: Int64);
     procedure OnFinishFileCopy(Sender: TObject);
     procedure OnCancelFileCopy(Sender: TObject);
     procedure OnFailedFileCopy(Sender: TObject);
     procedure OnCompare(Sender: TObject; Folder1, Folder2: string);
     procedure OnDoneCompareFolders(Sender: TObject; IdenticalA, IdenticalB, Left, Right: TList<TFileMeta>);
-    procedure StartFileCopy(FolderNameA, FolderNameB, FileName: string);
   public
     { Public 宣言 }
     constructor Create(Owner: TComponent); override;
@@ -82,34 +86,50 @@ begin
   FShowProgress := TShowProgress.Create(Self);
   FShowProgress.OnCancel := OnCancelFileCopy;
 
+  FQueue := TQueue<TSourceDestination>.Create;
+
   FFileCopy := TFileCopy.Create;
   FFileCopy.OnProgress := OnUpdateFileCopy;
   FFileCopy.OnComplete := OnFinishFileCopy;
   FFileCopy.OnError    := OnFailedFileCopy;
+
+  FDelayCall := TDelayCall.Create(StartCopyFile);
 end;
 
-procedure TStart.StartFileCopy(FolderNameA, FolderNameB, FileName: string);
+function TStart.ContainAll(Col, Top, Bottom: Integer; Key: string): Boolean;
+var
+  I: Integer;
 begin
-  if MessageDlg('ファイルをコピーしますか？', mtCustom, [mbOK, mbCancel], 0) = mrCancel then
-    Exit;
+  for I := Top to Bottom do
+    if not Grid.Cells[Col, I].Contains(Key) then
+      Exit(False);
+  Exit(True);
+end;
+
+procedure TStart.StartCopyFile;
+var
+  SourceDestination:
+                   TSourceDestination;
+begin
+  SourceDestination := FQueue.Dequeue;
 
   try
     FLastUpdateTime := Now;
     FLastUpdateSize := 000;
-    var OK :=  FFileCopy.Start(TPath.Combine(FolderNameA, FileName),
-                               TPath.Combine(FolderNameB, FileName));
-    if not OK then
-      ShowMessage('既に別のファイルコピーが進行中です。');
+
+    if not FFileCopy.Start(SourceDestination.Source,
+                           SourceDestination.Destination) then
+      raise Exception.Create('既に別のファイルコピーが進行中です。');
+
+    FShowProgress.Description := Format('「%s」から「%s」へコピーしてます。', [SourceDestination.Source, SourceDestination.Destination]);
+    FShowProgress.ShowModal;
   except on E: Exception do
     try
-      Exit;
+      FQueue.Clear;
     finally
       ShowMessage(E.Message);
     end;
   end;
-
-  FShowProgress.Description := Format('「%s」を「%s」から「%s」へコピーしています...', [FileName, FolderNameA, FolderNameB]);
-  FShowProgress.ShowModal;
 end;
 
 procedure TStart.OnDoOpen(Sender: TObject);
@@ -150,6 +170,9 @@ procedure TStart.OnFinishFileCopy(Sender: TObject);
 begin
   StatusBar.SimpleText := string.Empty;
   FShowProgress.ModalResult := mrOK;
+
+  if FQueue.Count > 0 then
+    FDelayCall.Schedule(200);
 end;
 
 procedure TStart.OnCancelFileCopy(Sender: TObject);
@@ -164,35 +187,47 @@ end;
 
 procedure TStart.OnClose(Sender: TObject; var Action: TCloseAction);
 begin
+  FDelayCall.Free;
   FFileCopy.Free;
+  FQueue.Free;
 end;
 
 procedure TStart.OnDoCopyLeftToRight(Sender: TObject);
 var
-  FileName: string;
+  I: Integer;
   FolderNameA: string;
   FolderNameB: string;
 begin
-  FileName := Grid.Cells[2, Grid.Row];
+  if MessageDlg('選択したファイルをコピーしますか？', mtCustom, [mbOK, mbCancel], 0) = mrCancel then
+    Exit;
 
   FolderNameA := Grid.Cells[2, 0];
   FolderNameB := Grid.Cells[3, 0];
 
-  StartFileCopy(FolderNameA, FolderNameB, FileName);
+  FQueue.Clear;
+  for I := Grid.Selection.Top to Grid.Selection.Bottom do
+    FQueue.Enqueue(TSourceDestination.Create(
+             FolderNameA, FolderNameB, Grid.Cells[2, I]));
+  StartCopyFile;
 end;
 
 procedure TStart.OnDoCopyRigthToLeft(Sender: TObject);
 var
-  FileName: string;
+  I: Integer;
   FolderNameA: string;
   FolderNameB: string;
 begin
-  FileName := Grid.Cells[3, Grid.Row];
+  if MessageDlg('選択したファイルをコピーしますか？', mtCustom, [mbOK, mbCancel], 0) = mrCancel then
+    Exit;
 
   FolderNameB := Grid.Cells[2, 0];
   FolderNameA := Grid.Cells[3, 0];
 
-  StartFileCopy(FolderNameA, FolderNameB, FileName);
+  FQueue.Clear;
+  for I := Grid.Selection.Top to Grid.Selection.Bottom do
+    FQueue.Enqueue(TSourceDestination.Create(
+             FolderNameB, FolderNameA, Grid.Cells[3, I]));
+  StartCopyFile;
 end;
 
 procedure TStart.OnDoneCompareFolders(Sender: TObject; IdenticalA,
@@ -278,23 +313,17 @@ const
 var
   Col, Row: Integer;
   P: TPoint;
-  NameA, NameB: string;
 begin
   if Button = mbRight then begin
     Grid.MouseToCell(X, Y, Col, Row);
-    if (Col >= Grid.FixedCols) and
-       (Row >= Grid.FixedRows) then begin
-      Grid.Col := Col;
-      Grid.Row := Row;
+    if (Row >= Grid.Selection.Top   ) and
+       (Row <= Grid.Selection.Bottom) then begin
 
-      NameA := Grid.Cells[2, Row];
-      NameB := Grid.Cells[3, Row];
-
-      if not NameA.IsEmpty and NameB.IsEmpty then begin
+      if ContainAll(1, Grid.Selection.Top, Grid.Selection.Bottom, '左') then begin
         DoCopyLeftToRight.Enabled := YES;
         DoCopyRigthToLeft.Enabled := NON;
       end else
-      if not NameB.IsEmpty and NameA.IsEmpty then begin
+      if ContainAll(1, Grid.Selection.Top, Grid.Selection.Bottom, '右') then begin
         DoCopyLeftToRight.Enabled := NON;
         DoCopyRigthToLeft.Enabled := YES;
       end else begin

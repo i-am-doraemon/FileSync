@@ -8,8 +8,7 @@ uses
   System.IOUtils,
   System.SyncObjs,
   System.SysUtils,
-
-  Vcl.Dialogs;
+  System.Types;
 
 type
   TChunk = record
@@ -72,6 +71,7 @@ type
     FBlockingQueue: TBlockingQueue;
     FFileName: string;
     FCopySize: Int64;
+    FLastWriteTime: TDateTime;
     FLastUpdateValue: Integer;
     FProgressEvent: TFileCopyProgressEvent;
     FCompleteEvent: TFileCopyCompleteEvent;
@@ -88,6 +88,17 @@ type
                        ErrorEvent: TFileCopyErrorEvent;
                        ProgressEvent: TFileCopyProgressEvent;
                        CompleteEvent: TFileCopyCompleteEvent);
+  end;
+
+  TSourceDestination = record
+  private
+    FSource     : string;
+    FDestination: string;
+  public
+    constructor Create(Source, Destination: string); overload;
+    constructor Create(Folder1, Folder2, FileName: string); overload;
+    property Source: string read FSource;
+    property Destination: string read FDestination;
   end;
 
   TFileCopy = class(TObject)
@@ -208,6 +219,8 @@ begin
   FBlockingQueue := BlockingQueue;
 
   FCopySize := TFile.GetSize(FileName1);
+  FLastWriteTime := TFile.GetLastWriteTime(FileName1);
+
   FFileName := FileName2;
 
   FProgressEvent := ProgressEvent;
@@ -283,8 +296,10 @@ begin
     Target.Free;
     if CopiedSize < FCopySize then
       FireErrorEvent
-    else if Done then
+    else if Done then begin
+      TFile.SetLastWriteTime(FFileName, FLastWriteTime);
       FireCompleteEvent('ƒRƒs[‚µ‚Ü‚µ‚½....');
+    end;
   except on E: Exception do
     try
       FireErrorEvent;
@@ -292,6 +307,18 @@ begin
       Target.Free;
     end;
   end;
+end;
+
+constructor TSourceDestination.Create(Source, Destination: string);
+begin
+  FSource      := Source;
+  FDestination := Destination;
+end;
+
+constructor TSourceDestination.Create(Folder1, Folder2, FileName: string);
+begin
+  FSource      := TPath.Combine(Folder1, FileName);
+  FDestination := TPath.Combine(Folder2, FileName);
 end;
 
 constructor TFileCopy.Create;

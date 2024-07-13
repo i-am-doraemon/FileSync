@@ -141,6 +141,7 @@
             <Form>ShowProgress</Form>
             <FormType>dfm</FormType>
         </DCCReference>
+        <DCCReference Include="src\App_Utilities.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

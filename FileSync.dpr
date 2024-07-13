@@ -6,7 +6,8 @@ uses
   App_View_OpenFolder in 'src\App_View_OpenFolder.pas' {OpenFolder},
   App_Data in 'src\App_Data.pas',
   App_File in 'src\App_File.pas',
-  App_View_ShowProgress in 'src\App_View_ShowProgress.pas' {ShowProgress};
+  App_View_ShowProgress in 'src\App_View_ShowProgress.pas' {ShowProgress},
+  App_Utilities in 'src\App_Utilities.pas';
 
 {$R *.res}
 
