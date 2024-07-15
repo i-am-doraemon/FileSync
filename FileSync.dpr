@@ -7,7 +7,8 @@ uses
   App_Data in 'src\App_Data.pas',
   App_File in 'src\App_File.pas',
   App_View_ShowProgress in 'src\App_View_ShowProgress.pas' {ShowProgress},
-  App_Utilities in 'src\App_Utilities.pas';
+  App_Utilities in 'src\App_Utilities.pas',
+  App_View_ShowThumbnail in 'src\App_View_ShowThumbnail.pas' {ShowThumbnail: TFrame};
 
 {$R *.res}
 
