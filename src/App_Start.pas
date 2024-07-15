@@ -8,7 +8,6 @@ uses
   App_Utilities,
   App_View_OpenFolder,
   App_View_ShowProgress,
-  App_View_ShowThumbnail,
 
   System.Classes,
   System.Generics.Collections,
@@ -40,9 +39,6 @@ type
     PopupMenu: TPopupMenu;
     DoCopyLeftToRight: TMenuItem;
     DoCopyRigthToLeft: TMenuItem;
-    Pages: TPageControl;
-    ComparisonResult: TTabSheet;
-    DoShowThumbnail: TMenuItem;
     procedure OnDoOpen(Sender: TObject);
     procedure OnDoTerminateApp(Sender: TObject);
     procedure OnDrawCell(Sender: TObject; ACol, ARow: Integer; Rect: TRect; State: TGridDrawState);
@@ -50,7 +46,6 @@ type
     procedure OnDoCopyLeftToRight(Sender: TObject);
     procedure OnDoCopyRigthToLeft(Sender: TObject);
     procedure OnClose(Sender: TObject; var Action: TCloseAction);
-    procedure OnDoShowThumbnail(Sender: TObject);
   private
     { Private êÈåæ }
     FFolderComparator: TFolderComparator;
@@ -61,7 +56,6 @@ type
     FQueue: TQueue<TSourceDestination>;
     FDelayCall: TDelayCall;
     function ContainAll(Col, Top, Bottom: Integer; Key: string): Boolean;
-    function IsSingleRowSelected(Top, Bottom: Integer): Boolean;
     procedure StartCopyFile;
     procedure OnUpdateFileCopy(Sender: TObject; CopiedBytes: Int64);
     procedure OnFinishFileCopy(Sender: TObject);
@@ -112,14 +106,6 @@ begin
   Exit(True);
 end;
 
-function TStart.IsSingleRowSelected(Top, Bottom: Integer): Boolean;
-begin
-  if Top = Bottom then
-    Result := True
-  else
-    Result := False;
-end;
-
 procedure TStart.StartCopyFile;
 var
   SourceDestination:
@@ -144,30 +130,6 @@ begin
       ShowMessage(E.Message);
     end;
   end;
-end;
-
-procedure TStart.OnDoShowThumbnail(Sender: TObject);
-var
-  ColumnIndex: Integer;
-  FileName: string;
-  TabSheet : TTabSheet;
-  ShowThumbnail: TShowThumbnail;
-begin
-    ColumnIndex := 2;
-
-  if Grid.Cells[1, Grid.Row].Contains('ç∂') then
-    ColumnIndex := 2
-  else
-  if Grid.Cells[1, Grid.Row].Contains('âE') then
-    ColumnIndex := 3;
-
-  FileName := TPath.Combine(Grid.Cells[ColumnIndex, 0], Grid.Cells[ColumnIndex, Grid.Row]);
-
-  TabSheet := TTabSheet.Create(Pages);
-  TabSheet.PageControl := Pages;
-
-  ShowThumbnail := TShowThumbnail.Create(TabSheet, FileName);
-  ShowThumbnail.Parent := TabSheet;
 end;
 
 procedure TStart.OnDoOpen(Sender: TObject);
@@ -356,15 +318,6 @@ begin
     Grid.MouseToCell(X, Y, Col, Row);
     if (Row >= Grid.Selection.Top   ) and
        (Row <= Grid.Selection.Bottom) then begin
-
-      if IsSingleRowSelected(Grid.Selection.Top, Grid.Selection.Bottom) then begin
-        if Grid.Cells[1, Grid.Row].IsEmpty then
-          DoShowThumbnail.Enabled := NON
-        else
-          DoShowThumbnail.Enabled := YES;
-      end else begin
-        DoShowThumbnail.Enabled := NON;
-      end;
 
       if ContainAll(1, Grid.Selection.Top, Grid.Selection.Bottom, 'ç∂') then begin
         DoCopyLeftToRight.Enabled := YES;
