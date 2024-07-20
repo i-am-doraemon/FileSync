@@ -142,6 +142,10 @@
             <FormType>dfm</FormType>
         </DCCReference>
         <DCCReference Include="src\App_Utilities.pas"/>
+        <DCCReference Include="src\App_View_PlayVideo.pas">
+            <Form>PlayVideo</Form>
+            <FormType>dfm</FormType>
+        </DCCReference>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

@@ -7,6 +7,7 @@ uses
   App_File,
   App_Utilities,
   App_View_OpenFolder,
+  App_View_PlayVideo,
   App_View_ShowProgress,
 
   System.Classes,
@@ -39,6 +40,7 @@ type
     PopupMenu: TPopupMenu;
     DoCopyLeftToRight: TMenuItem;
     DoCopyRigthToLeft: TMenuItem;
+    DoWatchThisVideo: TMenuItem;
     procedure OnDoOpen(Sender: TObject);
     procedure OnDoTerminateApp(Sender: TObject);
     procedure OnDrawCell(Sender: TObject; ACol, ARow: Integer; Rect: TRect; State: TGridDrawState);
@@ -46,6 +48,7 @@ type
     procedure OnDoCopyLeftToRight(Sender: TObject);
     procedure OnDoCopyRigthToLeft(Sender: TObject);
     procedure OnClose(Sender: TObject; var Action: TCloseAction);
+    procedure OnDoWatchThisVideo(Sender: TObject);
   private
     { Private êÈåæ }
     FFolderComparator: TFolderComparator;
@@ -55,7 +58,9 @@ type
     FLastUpdateSize: Int64;
     FQueue: TQueue<TSourceDestination>;
     FDelayCall: TDelayCall;
+    FVideoPlayer: TPlayVideo;
     function ContainAll(Col, Top, Bottom: Integer; Key: string): Boolean;
+    function IsMultipleRowSelected(Top, Bottom: Integer): Boolean;
     procedure StartCopyFile;
     procedure OnUpdateFileCopy(Sender: TObject; CopiedBytes: Int64);
     procedure OnFinishFileCopy(Sender: TObject);
@@ -94,6 +99,20 @@ begin
   FFileCopy.OnError    := OnFailedFileCopy;
 
   FDelayCall := TDelayCall.Create(StartCopyFile);
+
+  FVideoPlayer := TPlayVideo.Create(Self);
+end;
+
+procedure TStart.OnDoWatchThisVideo(Sender: TObject);
+var
+  FileName: string;
+begin
+  if Grid.Cells[1, Grid.Row].Contains('âE') then
+    FileName := TPath.Combine(Grid.Cells[3, 0], Grid.Cells[3, Grid.Row])
+  else
+    FileName := TPath.Combine(Grid.Cells[2, 0], Grid.Cells[2, Grid.Row]);
+
+  FVideoPlayer.Play(FileName);
 end;
 
 function TStart.ContainAll(Col, Top, Bottom: Integer; Key: string): Boolean;
@@ -104,6 +123,14 @@ begin
     if not Grid.Cells[Col, I].Contains(Key) then
       Exit(False);
   Exit(True);
+end;
+
+function TStart.IsMultipleRowSelected(Top, Bottom: Integer): Boolean;
+begin
+  if Top < Bottom then
+    Result := True
+  else
+    Result := False;
 end;
 
 procedure TStart.StartCopyFile;
@@ -318,6 +345,14 @@ begin
     Grid.MouseToCell(X, Y, Col, Row);
     if (Row >= Grid.Selection.Top   ) and
        (Row <= Grid.Selection.Bottom) then begin
+
+      if IsMultipleRowSelected(Grid.Selection.Top, Grid.Selection.Bottom) then
+        DoWatchThisVideo.Enabled := NON
+      else
+        if Grid.Cells[1, Grid.Row].IsEmpty then
+          Self.DoWatchThisVideo.Enabled := NON
+        else
+          Self.DoWatchThisVideo.Enabled := YES;
 
       if ContainAll(1, Grid.Selection.Top, Grid.Selection.Bottom, 'ç∂') then begin
         DoCopyLeftToRight.Enabled := YES;
