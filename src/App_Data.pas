@@ -81,8 +81,8 @@ type
 
     FIdenticalL: TList<TFileMeta>; // “¯ˆê(¶‘¤)
     FIdenticalR: TList<TFileMeta>; // “¯ˆê(‰E‘¤)
-    FOnlyL: TList<TFileMeta>;     // ¶‚Ì‚İ
-    FOnlyR: TList<TFileMeta>;     // ‰E‚Ì‚İ
+    FOnlyL: TList<TFileMeta>;      // ¶‚Ì‚İ
+    FOnlyR: TList<TFileMeta>;      // ‰E‚Ì‚İ
 
     FFolderComparisonCompleteEvent: TFolderComparisonCompleteEvent;
 
