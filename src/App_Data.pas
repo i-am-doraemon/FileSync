@@ -7,6 +7,8 @@ uses
   System.Generics.Collections,
   System.Hash,
   System.IOUtils,
+  System.JSON.Serializers,
+  System.JSON.Types,
   System.Math,
   System.SysUtils,
   System.Types;
@@ -14,13 +16,16 @@ uses
 type
   TFileMeta = record
   private
+    FIdNo: Integer;
     FName: string;
     FHash: string;
     FSize: UInt64;
     function GetHash: string;
     function GetSize: UInt64;
   public
-    constructor Create(Path: string);
+    constructor Create(Path: string); overload;
+    constructor Create(IdNo: Integer; Name, Hash: string; Size: UInt64); overload;
+    property IdNo: Integer read FIdNo;
     property Name: string read FName;
     property Hash: string read FHash;
     property Size: Uint64 read FSize;
@@ -66,10 +71,31 @@ type
     property OnError: TFileMetaErrorEvent read FOnError write FOnError;
   end;
 
+  TFileComparison = record
+    Unique: Integer;
+    Result: string;
+    Sha256: string;
+    FileNameA: string;
+    FileNameB: string;
+    constructor Create(Unique: Integer; Result, Sha256, FileNameA, FileNameB: string);
+  end;
+
+  TFileComparisonList = array of TFileComparison;
+
+  TComparisonResult = record
+    Total: Integer;
+    FolderA: string;
+    FolderB: string;
+    FileComparisonList: TFileComparisonList;
+  end;
+
   TFolderComparisonCompleteEvent = reference to procedure(Sender: TObject; IdenticalA, IdenticalB, Left, Right: TList<TFileMeta>);
 
   TFolderComparator = class(TObject)
   private
+    FFolderA: string;
+    FFolderB: string;
+
     FFiles1: TStringDynArray;
     FFiles2: TStringDynArray;
 
@@ -79,12 +105,16 @@ type
     FFileHash1: TFileMetaDynArray;
     FFileHash2: TFileMetaDynArray;
 
+    // 比較結果
+
     FIdenticalL: TList<TFileMeta>; // 同一(左側)
     FIdenticalR: TList<TFileMeta>; // 同一(右側)
     FOnlyL: TList<TFileMeta>;      // 左のみ
     FOnlyR: TList<TFileMeta>;      // 右のみ
 
     FFolderComparisonCompleteEvent: TFolderComparisonCompleteEvent;
+
+    function Remake(X: TFileMeta; var Count: Integer): TFileMeta;
 
     procedure OnProgress1(Sender: TObject; Percent: Integer);
     procedure OnProgress2(Sender: TObject; Percent: Integer);
@@ -98,7 +128,11 @@ type
     procedure Sort;
   public
     constructor Create(Folder1, Folder2: string);
+    destructor Destroy; override;
+
     function CompareAsync(FolderComparisonCompleteEvent: TFolderComparisonCompleteEvent): Boolean;
+    function CreateComparisonResult: TComparisonResult;
+    function Save(FileName: string): Boolean;
   end;
 
 implementation
@@ -113,38 +147,53 @@ begin
   FSize := GetSize;
 end;
 
+constructor TFileMeta.Create(IdNo: Integer; Name, Hash: string; Size: UInt64);
+begin
+  FIdNo := IdNo;
+  FName := Name;
+  FHash := Hash;
+  FSize := Size;
+end;
+
 function TFileMeta.GetHash: string;
 const
   MAX_READ_SIZE = 1024 * 1024; // 1MByte
+  MAX_BUFF_SIZE = 1024 * 1024; // 1MByte
 var
+  Buffer: TBytes;
   Stream: TStream;
-  Bytes: TBytes;
-  NumberOfBytesReadSuccessfully: Integer;
+  Remain: Int64;
+  NumberOfBytesRead: Integer;
   HashGenerator: THashSHA2;
 begin
+  SetLength(Buffer, MAX_BUFF_SIZE);
+
   // ファイルの先頭から最大1Mバイトを読み取る
 
-  SetLength(Bytes, MAX_READ_SIZE);
+  HashGenerator := THashSHA2.Create(SHA256);
 
   Stream := nil;
   try
-    Stream := TFileStream.Create(FName, fmOpenRead); // 読取専用で開く
-    NumberOfBytesReadSuccessfully := Stream.Read(Bytes, Length(Bytes));
-    Stream.Free;
-  except
     try
-      Stream.Free;
-    finally
-      raise Exception.Create(
-              Format('ファイル%sのオープンに失敗しました。', [FName]));
+      Stream :=
+          TFileStream.Create(FName, fmOpenRead);
+
+      Remain := Min(Stream.Size, MAX_READ_SIZE);
+      while Remain > 0 do begin
+        NumberOfBytesRead :=
+                    Stream.Read(Buffer, Length(Buffer));
+        HashGenerator.Update(Buffer, NumberOfBytesRead);
+        Dec(Remain, NumberOfBytesRead);
+      end;
+
+      Result := HashGenerator.HashAsString;
+    except
+      on E: Exception do
+        raise E;
     end;
+  finally
+    Stream.Free;
   end;
-
-  // ハッシュ値を計算する
-
-  HashGenerator := THashSHA2.Create(SHA256);
-  HashGenerator.Update(Bytes, NumberOfBytesReadSuccessfully);
-  Result := HashGenerator.HashAsString;
 end;
 
 function TFileMeta.GetSize: UInt64;
@@ -278,74 +327,180 @@ begin
   end;
 end;
 
+constructor TFileComparison.Create(Unique: Integer; Result, Sha256, FileNameA, FileNameB: string);
+begin
+  Self.Unique := Unique;
+  Self.Result := Result;
+  Self.Sha256 := Sha256;
+  Self.FileNameA := FileNameA;
+  Self.FileNameB := FileNameB;
+end;
+
 constructor TFolderComparator.Create(Folder1, Folder2: string);
 begin
   inherited Create;
 
   FFiles1 := TDirectory.GetFiles(Folder1);
   FFiles2 := TDirectory.GetFiles(Folder2);
+
+  FFolderA := Folder1;
+  FFolderB := Folder2;
+
+  FIdenticalL := TList<TFileMeta>.Create;
+  FIdenticalR := TList<TFileMeta>.Create;
+
+  FOnlyL := TList<TFileMeta>.Create;
+  FOnlyR := TList<TFileMeta>.Create;
+end;
+
+destructor TFolderComparator.Destroy;
+begin
+  FIdenticalL.Free;
+  FIdenticalR.Free;
+
+  FOnlyL.Free;
+  FOnlyR.Free;
 end;
 
 procedure TFolderComparator.Sort;
 begin
-  var FileHashA := TList<TFileMeta>.Create;
-  var FileHashB := TList<TFileMeta>.Create;
+  FIdenticalL.Clear;
+  FIdenticalR.Clear;
+  FOnlyL.Clear;
+  FOnlyR.Clear;
 
-  for var I := 0 to Length(FFileHash1) - 1 do
-    FileHashA.Add(FFileHash1[I]);
+  var Count := 0;
 
-  for var I := 0 to Length(FFileHash2) - 1 do
-    FileHashB.Add(FFileHash2[I]);
-
-  FIdenticalL.Free;
-  FIdenticalR.Free;
-  FOnlyL.Free;
-  FOnlyR.Free;
-
-  FIdenticalL := TList<TFileMeta>.Create;
-  FIdenticalR := TList<TFileMeta>.Create;
-  FOnlyL := TList<TFileMeta>.Create;
-  FOnlyR := TList<TFileMeta>.Create;
-
-  for var A in FileHashA do begin
-  for var B in FileHashB do begin
+  for var A in FFileHash1 do begin
+  for var B in FFileHash2 do begin
     if A = B then begin
-      FIdenticalL.Add(A);
-      FIdenticalR.Add(B);
+      var L := A; // 左
+      var R := B; // 右
+
+      L.FIdNo := Count;
+      R.FIdNo := Count;
+
+      FIdenticalL.Add(L);
+      FIdenticalR.Add(R);
+      Inc(Count);
     end;
   end;
   end;
 
   // 左はあるが右はない場合
-  for var A in FileHashA do begin
+  for var A in FFileHash1 do begin
     var Found := False;
-  for var B in FileHashB do begin
+  for var B in FFileHash2 do begin
     if A = B then
       Found := True;
   end;
     if not Found then
-      FOnlyL.Add(A);
+      FOnlyL.Add(Remake(A, Count));
   end;
 
   // 右はあるが左はない場合
-  for var B in FileHashB do begin
+  for var B in FFileHash2 do begin
     var Found := False;
-  for var A in FileHashA do begin
+  for var A in FFileHash1 do begin
     if B = A then
       Found := True;
   end;
     if not Found then
-      FOnlyR.Add(B);
+      FOnlyR.Add(Remake(B, Count));
   end;
 
   FFolderComparisonCompleteEvent(Self, FIdenticalL, FIdenticalR, FOnlyL, FOnlyR);
-
-  FileHashA.Free;
-  FileHashB.Free;
 end;
 
 procedure TFolderComparator.OnProgress1(Sender: TObject; Percent: Integer);
 begin
+end;
+
+function TFolderComparator.CreateComparisonResult: TComparisonResult;
+var
+  Total, I, J: Integer;
+begin
+  Total := FIdenticalL.Count + Self.FOnlyL.Count
+                             + Self.FOnlyR.Count;
+  Result.Total := Total;
+
+  Result.FolderA := FFolderA;
+  Result.FolderB := FFolderB;
+
+  SetLength(Result.FileComparisonList, Total);
+
+  I := 0;
+  J := 0;
+
+  while I < FIdenticalL.Count do begin
+    Result.FileComparisonList[J] := TFileComparison.Create(FIdenticalL[I].IdNo,
+                                                          '同一',
+                                                          FIdenticalL[I].Hash,
+                                                          FIdenticalL[I].Name,
+                                                          FIdenticalR[I].Name);
+    Inc(I);
+    Inc(J);
+  end;
+
+  I := 0;
+  while I < FOnlyL.Count do begin
+    Result.FileComparisonList[J] := TFileComparison.Create(FOnlyL[I].IdNo,
+                                                           '左側のみ',
+                                                           FOnlyL[I].Hash,
+                                                           FOnlyL[I].Name,
+                                                           '');
+    Inc(I);
+    Inc(J);
+  end;
+
+  I := 0;
+  while I < FOnlyR.Count do begin
+    Result.FileComparisonList[J] := TFileComparison.Create(FOnlyR[I].IdNo,
+                                                           '右側のみ',
+                                                           FOnlyR[I].Hash,
+                                                           '',
+                                                           FOnlyR[I].Name);
+    Inc(I);
+    Inc(J);
+  end;
+end;
+
+function TFolderComparator.Remake(X: TFileMeta; var Count: Integer): TFileMeta;
+begin
+  Result := X;
+  Result.FIdNo := Count;
+  Inc(Count);
+end;
+
+function TFolderComparator.Save(FileName: string): Boolean;
+var
+  TextWriter : TTextWriter;
+  JSONSerializer: TJSONSerializer;
+  Text: string;
+begin
+  TextWriter := nil;
+  try
+    TextWriter := TStreamWriter.Create(FileName);
+
+    JSONSerializer := TJSONSerializer.Create;
+    JSONSerializer.Formatting := TJSONFormatting.Indented;
+    try
+      Text := JSONSerializer.Serialize<TComparisonResult>(CreateComparisonResult);
+    finally
+      JSONSerializer.Free;
+    end;
+
+    TextWriter.Write(Text);
+    TextWriter.Free;
+  except
+    on E: Exception do
+      try
+        Exit(False);
+      finally
+        TextWriter.Free;
+      end;
+  end;
+  Exit(True);
 end;
 
 function TFolderComparator.CompareASync(FolderComparisonCompleteEvent: TFolderComparisonCompleteEvent): Boolean;

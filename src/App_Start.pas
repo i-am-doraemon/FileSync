@@ -6,6 +6,7 @@ uses
   App_Data,
   App_File,
   App_Utilities,
+  App_View_ConfigSorting,
   App_View_OpenFolder,
   App_View_PlayVideo,
   App_View_ShowProgress,
@@ -13,6 +14,7 @@ uses
   System.Classes,
   System.Generics.Collections,
   System.IOUtils,
+  System.JSON.Serializers,
   System.SysUtils,
   System.TimeSpan,
   System.Variants,
@@ -33,22 +35,40 @@ type
   TStart = class(TForm)
     MainMenu: TMainMenu;
     FileMenu: TMenuItem;
-    DoOpen: TMenuItem;
-    DoTerminateApp: TMenuItem;
+    DataMenu: TMenuItem;
+
     Grid: TStringGrid;
     StatusBar: TStatusBar;
+
+    DoOpen: TMenuItem;
+    DoSort: TMenuItem;
+    DoExit: TMenuItem;
+
     PopupMenu: TPopupMenu;
     DoCopyLeftToRight: TMenuItem;
     DoCopyRigthToLeft: TMenuItem;
-    DoWatchThisVideo: TMenuItem;
+    DoWatchThisVideo : TMenuItem;
+
+    DoShowSaveDialog: TSaveDialog;
+    DoShowOpenDialog: TOpenDialog;
+    DoImport: TMenuItem;
+    DoExport: TMenuItem;
+
     procedure OnDoOpen(Sender: TObject);
-    procedure OnDoTerminateApp(Sender: TObject);
-    procedure OnDrawCell(Sender: TObject; ACol, ARow: Integer; Rect: TRect; State: TGridDrawState);
-    procedure OnMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure OnDoSort(Sender: TObject);
+    procedure OnDoExit(Sender: TObject);
     procedure OnDoCopyLeftToRight(Sender: TObject);
     procedure OnDoCopyRigthToLeft(Sender: TObject);
-    procedure OnClose(Sender: TObject; var Action: TCloseAction);
     procedure OnDoWatchThisVideo(Sender: TObject);
+
+    procedure OnDrawCell(Sender: TObject; ACol, ARow: Integer; Rect: TRect; State: TGridDrawState);
+    procedure OnMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+
+    procedure OnDoExport(Sender: TObject);
+    procedure OnDoImport(Sender: TObject);
+
+    procedure OnClose(Sender: TObject; var Action: TCloseAction);
+
   private
     { Private 宣言 }
     FFolderComparator: TFolderComparator;
@@ -59,9 +79,14 @@ type
     FQueue: TQueue<TSourceDestination>;
     FDelayCall: TDelayCall;
     FVideoPlayer: TPlayVideo;
+    FSortPreference: TConfigSorting;
     function ContainAll(Col, Top, Bottom: Integer; Key: string): Boolean;
     function IsMultipleRowSelected(Top, Bottom: Integer): Boolean;
+    function Sort(Key1, key2, Key3: string): Boolean;
+    function Load(TextReader: TTextReader): Boolean;
+    procedure SetGrid(ComparisonResult: TComparisonResult);
     procedure StartCopyFile;
+    procedure OnSort(Sender: TObject; Key1, Key2, Key3: string);
     procedure OnUpdateFileCopy(Sender: TObject; CopiedBytes: Int64);
     procedure OnFinishFileCopy(Sender: TObject);
     procedure OnCancelFileCopy(Sender: TObject);
@@ -101,6 +126,9 @@ begin
   FDelayCall := TDelayCall.Create(StartCopyFile);
 
   FVideoPlayer := TPlayVideo.Create(Self);
+
+  FSortPreference := TConfigSorting.Create(Self);
+  FSortPreference.OnSort := OnSort;
 end;
 
 procedure TStart.OnDoWatchThisVideo(Sender: TObject);
@@ -133,6 +161,108 @@ begin
     Result := False;
 end;
 
+function TStart.Sort(Key1, key2, Key3: string): Boolean;
+  procedure Exchange(RowA, RowB: Integer);
+  begin
+    for var I := 0 to 4 do begin
+      var A := Grid.Cells[I, RowA];
+      var B := Grid.Cells[I, RowB];
+      Grid.Cells[I, RowA] := B;
+      Grid.Cells[I, RowB] := A;
+    end;
+  end;
+
+  function ToColumnIndex(Key: string): Integer;
+  begin
+    if Key.Contains('No') then
+      Exit(0)
+    else if Key.Contains('結果') then
+      Exit(1)
+    else if Key.Contains('左側') then
+      Exit(2)
+    else if Key.Contains('右側') then
+      Exit(3)
+    else if Key.Contains('ハッシュ') then
+      Exit(4)
+    else
+      Exit(-1);
+  end;
+
+  function Compare(RowA, RowB: Integer): Integer;
+  const
+    IDENTICAL = 0;
+  begin
+    var List := TList<string>.Create;
+    try
+      if not Key1.IsEmpty then List.Add(Key1);
+      if not Key2.IsEmpty then List.Add(Key2);
+      if not Key3.IsEmpty then List.Add(Key3);
+
+      for var Key in List do begin
+        var Col := ToColumnIndex(key);
+        if Col < 0 then
+          raise Exception.Create('存在しない列名に対するソートです...');
+        if Col = 0 then begin
+          var A := Grid.Cells[Col, RowA].ToInteger;
+          var B := Grid.Cells[Col, RowB].ToInteger;
+          Result := A - B;
+        end else begin
+          var A := Grid.Cells[Col, RowA];
+          var B := Grid.Cells[Col, RowB];
+          Result := A.CompareTo(B);
+        end;
+        if Result <> IDENTICAL then
+          break;
+      end;
+    finally
+      List.Free;
+    end;
+  end;
+begin
+  // バブルソートで並び替え
+  for var I := 1 to Grid.RowCount - 1     do begin
+  for var J := 1 to Grid.RowCount - 1 - I do begin
+    if Compare(J, J + 1) > 0 then
+      Exchange(J, J + 1);
+  end;
+  end;
+end;
+
+function TStart.Load(TextReader: TTextReader): Boolean;
+begin
+  var Serializer := TJSONSerializer.Create;
+  try
+    try
+      SetGrid(Serializer.Deserialize
+                      <TComparisonResult>(TextReader));
+    except
+      on E: Exception do
+        Exit(False);
+    end;
+  finally
+    Serializer.Free;
+  end;
+  Exit(True);
+end;
+
+procedure TStart.SetGrid(ComparisonResult: TComparisonResult);
+begin
+  Grid.RowCount := ComparisonResult.Total + 1;
+
+  Grid.Cells[2, 0] := ComparisonResult.FolderA;
+  Grid.Cells[3, 0] := ComparisonResult.FolderB;
+
+  var I := 1;
+  for var Each in ComparisonResult.FileComparisonList do begin
+    Grid.Cells[0, I] := Each.Unique.ToString;
+    Grid.Cells[1, I] := Each.Result;
+    Grid.Cells[2, I] := TPath.GetFileName(Each.FileNameA);
+    Grid.Cells[3, I] := TPath.GetFileName(Each.FileNameB);
+    Grid.Cells[4, I] := Each.Sha256;
+    Inc(I);
+  end;
+end;
+
 procedure TStart.StartCopyFile;
 var
   SourceDestination:
@@ -159,6 +289,11 @@ begin
   end;
 end;
 
+procedure TStart.OnSort(Sender: TObject; Key1, Key2, Key3: string);
+begin
+  Sort(Key1, Key2, Key3);
+end;
+
 procedure TStart.OnDoOpen(Sender: TObject);
 var
   OpenFolder: TOpenFolder;
@@ -166,6 +301,11 @@ begin
   OpenFolder := TOpenFolder.Create(Self);
   OpenFolder.OnCompare := OnCompare;
   OpenFolder.ShowModal;
+end;
+
+procedure TStart.OnDoSort(Sender: TObject);
+begin
+  FSortPreference.ShowModal;
 end;
 
 procedure TStart.OnUpdateFileCopy(Sender: TObject; CopiedBytes: Int64);
@@ -257,38 +397,28 @@ begin
   StartCopyFile;
 end;
 
+procedure TStart.OnDoExport(Sender: TObject);
+begin
+  if DoShowSaveDialog.Execute then
+    FFolderComparator.Save(DoShowSaveDialog.FileName);
+end;
+
+procedure TStart.OnDoImport(Sender: TObject);
+begin
+  if DoShowOpenDialog.Execute then begin
+    var TextReader := TStreamReader.Create(DoShowOpenDialog.FileName);
+    try
+      Load(TextReader);
+    finally
+      TextReader.Free;
+    end;
+  end;
+end;
+
 procedure TStart.OnDoneCompareFolders(Sender: TObject; IdenticalA,
                                                        IdenticalB, Left, Right: TList<TFileMeta>);
 begin
-  Grid.RowCount := IdenticalA.Count + Left.Count + Right.Count + 1;
-
-  for var I := 0 to IdenticalA.Count - 1 do begin
-    Grid.Cells[0, I + 1] := I.ToString;
-    Grid.Cells[1, I + 1] := '同一';
-    Grid.Cells[2, I + 1] := TPath.GetFileName(IdenticalA[I].Name);
-    Grid.Cells[3, I + 1] := TPath.GetFileName(IdenticalB[I].Name);
-    Grid.Cells[4, I + 1] := IdenticalA[I].Hash;
-
-    var NameA := TPath.GetFileName(IdenticalA[I].Name);
-    var NameB := TPath.GetFileName(IdenticalB[I].Name);
-  end;
-
-  for var I := 0 to Left.Count - 1 do begin
-    Grid.Cells[0, I + 1 + IdenticalA.Count] := (I + IdenticalA.Count).ToString;
-    Grid.Cells[1, I + 1 + IdenticalA.Count] := '左側のみ';
-    Grid.Cells[2, I + 1 + IdenticalA.Count] := TPath.GetFileName(Left[I].Name);
-    Grid.Cells[3, I + 1 + IdenticalA.Count] := string.Empty;
-    Grid.Cells[4, I + 1 + IdenticalA.Count] := Left[I].Hash;
-  end;
-
-  for var I := 0 to Right.Count - 1 do begin
-    Grid.Cells[0, I + 1 + IdenticalA.Count + Left.Count] := (I + IdenticalA.Count + Left.Count).ToString;
-    Grid.Cells[1, I + 1 + IdenticalA.Count + Left.Count] := '右側のみ';
-    Grid.Cells[2, I + 1 + IdenticalA.Count + Left.Count] := string.Empty;
-    Grid.Cells[3, I + 1 + IdenticalA.Count + Left.Count] := TPath.GetFileName(Right[I].Name);
-    Grid.Cells[4, I + 1 + IdenticalA.Count + Left.Count] := Right[I].Hash;
-  end;
-
+  SetGrid(FFolderComparator.CreateComparisonResult);
   StatusBar.SimpleText := string.Empty;
 end;
 
@@ -306,7 +436,7 @@ begin
     ShowMessage('既に実行中です。');
 end;
 
-procedure TStart.OnDoTerminateApp(Sender: TObject);
+procedure TStart.OnDoExit(Sender: TObject);
 begin
   Close;
 end;

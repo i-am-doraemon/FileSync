@@ -2,8 +2,8 @@ object Start: TStart
   Left = 0
   Top = 0
   Caption = 'FileSync'
-  ClientHeight = 431
-  ClientWidth = 584
+  ClientHeight = 428
+  ClientWidth = 572
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clWindowText
@@ -16,8 +16,8 @@ object Start: TStart
   object Grid: TStringGrid
     Left = 0
     Top = 0
-    Width = 584
-    Height = 412
+    Width = 572
+    Height = 409
     Align = alClient
     RowCount = 10
     Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRangeSelect, goColSizing, goRowMoving, goRowSelect, goThumbTracking, goFixedRowDefAlign]
@@ -27,8 +27,8 @@ object Start: TStart
   end
   object StatusBar: TStatusBar
     Left = 0
-    Top = 412
-    Width = 584
+    Top = 409
+    Width = 572
     Height = 19
     Panels = <>
     SimplePanel = True
@@ -38,13 +38,28 @@ object Start: TStart
     Top = 16
     object FileMenu: TMenuItem
       Caption = #12501#12449#12452#12523
+      object DoImport: TMenuItem
+        Caption = #12501#12449#12452#12523#12434#21462#12426#36796#12416
+        OnClick = OnDoImport
+      end
+      object DoExport: TMenuItem
+        Caption = #12501#12449#12452#12523#12434#20986#21147#12377#12427
+        OnClick = OnDoExport
+      end
       object DoOpen: TMenuItem
         Caption = #38283#12367
         OnClick = OnDoOpen
       end
-      object DoTerminateApp: TMenuItem
+      object DoExit: TMenuItem
         Caption = #32066#20102
-        OnClick = OnDoTerminateApp
+        OnClick = OnDoExit
+      end
+    end
+    object DataMenu: TMenuItem
+      Caption = #12487#12540#12479
+      object DoSort: TMenuItem
+        Caption = #20006#12409#26367#12360#12427
+        OnClick = OnDoSort
       end
     end
   end
@@ -63,5 +78,17 @@ object Start: TStart
       Caption = #21491#20596#12363#12425#24038#20596#12408#12467#12500#12540#12377#12427
       OnClick = OnDoCopyRigthToLeft
     end
+  end
+  object DoShowSaveDialog: TSaveDialog
+    DefaultExt = '*.json'
+    Filter = 'JSON|*.JSON,*.json'
+    Left = 536
+    Top = 128
+  end
+  object DoShowOpenDialog: TOpenDialog
+    DefaultExt = '*.json'
+    Filter = 'JSON|*.JSON,*.json'
+    Left = 536
+    Top = 184
   end
 end
