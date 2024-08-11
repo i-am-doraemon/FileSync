@@ -24,7 +24,6 @@ type
     function GetSize: UInt64;
   public
     constructor Create(Path: string); overload;
-    constructor Create(IdNo: Integer; Name, Hash: string; Size: UInt64); overload;
     property IdNo: Integer read FIdNo;
     property Name: string read FName;
     property Hash: string read FHash;
@@ -77,7 +76,8 @@ type
     Sha256: string;
     FileNameA: string;
     FileNameB: string;
-    constructor Create(Unique: Integer; Result, Sha256, FileNameA, FileNameB: string);
+    Size: Int64;
+    constructor Create(Unique: Integer; Result, Sha256, FileNameA, FileNameB: string; Size: Int64);
   end;
 
   TFileComparisonList = array of TFileComparison;
@@ -147,14 +147,6 @@ begin
   FSize := GetSize;
 end;
 
-constructor TFileMeta.Create(IdNo: Integer; Name, Hash: string; Size: UInt64);
-begin
-  FIdNo := IdNo;
-  FName := Name;
-  FHash := Hash;
-  FSize := Size;
-end;
-
 function TFileMeta.GetHash: string;
 const
   MAX_READ_SIZE = 1024 * 1024; // 1MByte
@@ -209,7 +201,7 @@ end;
 
 class operator TFileMeta.Equal(Left, Right: TFileMeta): Boolean;
 begin
-  Result := Left.Hash.Equals(Right.Hash);
+  Result := (Left.Hash.Equals(Right.Hash)) and (Left.Size = Right.Size);
 end;
 
 constructor TDoRunInBackground.Create(Files: TStringDynArray; ProgressEvent: TFileMetaProgressEvent;
@@ -327,13 +319,14 @@ begin
   end;
 end;
 
-constructor TFileComparison.Create(Unique: Integer; Result, Sha256, FileNameA, FileNameB: string);
+constructor TFileComparison.Create(Unique: Integer; Result, Sha256, FileNameA, FileNameB: string; Size: Int64);
 begin
   Self.Unique := Unique;
   Self.Result := Result;
   Self.Sha256 := Sha256;
   Self.FileNameA := FileNameA;
   Self.FileNameB := FileNameB;
+  Self.Size := Size;
 end;
 
 constructor TFolderComparator.Create(Folder1, Folder2: string);
@@ -437,7 +430,8 @@ begin
                                                           'ìØàÍ',
                                                           FIdenticalL[I].Hash,
                                                           FIdenticalL[I].Name,
-                                                          FIdenticalR[I].Name);
+                                                          FIdenticalR[I].Name,
+                                                          FIdenticalL[I].Size);
     Inc(I);
     Inc(J);
   end;
@@ -448,7 +442,8 @@ begin
                                                            'ç∂ë§ÇÃÇ›',
                                                            FOnlyL[I].Hash,
                                                            FOnlyL[I].Name,
-                                                           '');
+                                                           '',
+                                                           FOnlyL[I].Size);
     Inc(I);
     Inc(J);
   end;
@@ -459,7 +454,8 @@ begin
                                                            'âEë§ÇÃÇ›',
                                                            FOnlyR[I].Hash,
                                                            '',
-                                                           FOnlyR[I].Name);
+                                                           FOnlyR[I].Name,
+                                                           FOnlyR[I].Size);
     Inc(I);
     Inc(J);
   end;

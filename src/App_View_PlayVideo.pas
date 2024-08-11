@@ -25,7 +25,7 @@ type
     procedure OnStartPlayingBack(Sender: TObject);
   private
     { Private 宣言 }
-    FPipeline: PInteger;
+    FPipeline: PUInt64;
     FDuration: Integer;
     FPosition: Integer;
     function ToHhmmssFormat(Seconds: Integer): string;
@@ -36,18 +36,18 @@ type
     procedure Play(FileName: string);
     procedure Stop;
   end;
-
-  PPInteger = ^PInteger;
+  PPUint64 = ^PUInt64;
 
   function MyVideoInitialize: Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_initialize';
-  function MyVideoCreateM2tsPipeline(PPipeline: PPInteger): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_create_m2ts_pipeline';
-  function MyVideoCreateH264Pipeline(PPipeline: PPInteger): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_create_h264_pipeline';
-  function MyVideoCreateH265Pipeline(PPipeline: PPInteger): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_create_h265_pipeline';
-  function MyVideoDeletePipeline(PPipeline: PPInteger): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_delete_pipeline';
-  function MyVideoPlayback(Pipeline: PInteger; FileName: PAnsiChar; Handle: HWnd): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_playback';
-  function MyVideoStop(Pipeline: PInteger): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_stop';
-  function MyVideoGetDuration(Pipeline: PInteger): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_get_duration';
-  function MyVideoGetPosition(Pipeline: PInteger): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_get_position';
+  function MyVideoGetCodecId(FileName: PAnsiChar): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_get_codec_id';
+  function MyVideoCreateM2tsPipeline(PPipeline: PPUInt64): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_create_m2ts_pipeline';
+  function MyVideoCreateH264Pipeline(PPipeline: PPUInt64): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_create_h264_pipeline';
+  function MyVideoCreateH265Pipeline(PPipeline: PPUInt64): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_create_h265_pipeline';
+  function MyVideoDeletePipeline(PPipeline: PUInt64): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_delete_pipeline';
+  function MyVideoPlayback(Pipeline: PUInt64; FileName: PAnsiChar; Handle: HWnd): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_playback';
+  function MyVideoStop(Pipeline: PUInt64): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_stop';
+  function MyVideoGetDuration(Pipeline: PUInt64): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_get_duration';
+  function MyVideoGetPosition(Pipeline: PUInt64): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_get_position';
 
 implementation
 
@@ -72,14 +72,40 @@ end;
 
 procedure TPlayVideo.Play(FileName: string);
 const
+  CODEC_ID_MPEG = $0002;
+  CODEC_ID_H264 = $001B;
+  CODEC_ID_H265 = $00AD;
+const
+  NO_ERROR = 0;
   YES = True;
   NON = False;
 var
   Utf8: UTF8String;
+  CodecID: Integer;
 begin
-  MyVideoCreateM2tsPipeline(@FPipeline);
-
   Utf8 := FileName;
+
+  CodecId := MyVideoGetCodecId(PAnsiChar(Utf8));
+  try
+    case CodecId of
+      CODEC_ID_MPEG: if MyVideoCreateM2TSPipeline(@FPipeline) <> NO_ERROR then
+        raise Exception.Create('MPEGのパイプラインの作成に失敗しました。');
+      CODEC_ID_H264: if MyVideoCreateH264Pipeline(@FPipeline) <> NO_ERROR then
+        raise Exception.Create('H264のパイプラインの作成に失敗しました。');
+      CODEC_ID_H265: if MyVideoCreateH265Pipeline(@FPipeline) <> NO_ERROR then
+        raise Exception.Create('H265のパイプラインの作成に失敗しました。');
+    else
+      raise Exception.Create('サポートされないコーデックです。');
+    end;
+  except
+    on E: Exception do
+      try
+        Exit;
+      finally
+        ShowMessage(E.Message);
+      end;
+  end;
+
   MyVideoPlayback(FPipeline, PAnsiChar(Utf8), Panel.Handle);
   Timer.Enabled := YES;
   ShowModal;
@@ -89,7 +115,7 @@ end;
 procedure TPlayVideo.Stop;
 begin
   MyVideoStop(FPipeline);
-  MyVideoDeletePipeline(@FPipeline);
+  MyVideoDeletePipeline(FPipeline);
 end;
 
 procedure TPlayVideo.OnClose(Sender: TObject; var Action: TCloseAction);
@@ -98,9 +124,6 @@ begin
 end;
 
 procedure TPlayVideo.OnStartPlayingBack(Sender: TObject);
-var
-  Duration: Integer;
-  H, M, S: Integer;
 begin
   FDuration := MyVideoGetDuration(FPipeline);
   if FDuration > 0 then
@@ -111,7 +134,6 @@ procedure TPlayVideo.OnPlayingBack(Sender: TObject);
 var
   Duration: string;
   Position: string;
-  Percent: Integer;
 begin
   FPosition := MyVideoGetPosition(FPipeline);
   if FPosition > 0 then begin

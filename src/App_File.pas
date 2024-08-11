@@ -24,7 +24,7 @@ type
   TBlockingQueue = class(TObject)
   private
     const
-    CHUNK_SIZE = 8 * 1024 * 1024;
+    CHUNK_SIZE = 8 * 1024 * 1024; // 8[MByte]
     var
     FSize: Integer;
     FHead: Integer;

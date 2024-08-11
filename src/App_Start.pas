@@ -111,7 +111,8 @@ begin
 
   Grid.Cells[0, 0] := 'No';
   Grid.Cells[1, 0] := '比較結果';
-  Grid.Cells[4, 0] := 'ハッシュ値(SHA256)';
+  Grid.Cells[4, 0] := 'ファイルサイズ';
+  Grid.Cells[5, 0] := 'ハッシュ値(SHA256)';
 
   FShowProgress := TShowProgress.Create(Self);
   FShowProgress.OnCancel := OnCancelFileCopy;
@@ -164,7 +165,7 @@ end;
 function TStart.Sort(Key1, key2, Key3: string): Boolean;
   procedure Exchange(RowA, RowB: Integer);
   begin
-    for var I := 0 to 4 do begin
+    for var I := 0 to 5 do begin
       var A := Grid.Cells[I, RowA];
       var B := Grid.Cells[I, RowB];
       Grid.Cells[I, RowA] := B;
@@ -173,6 +174,8 @@ function TStart.Sort(Key1, key2, Key3: string): Boolean;
   end;
 
   function ToColumnIndex(Key: string): Integer;
+  const
+    E = -1;
   begin
     if Key.Contains('No') then
       Exit(0)
@@ -182,13 +185,15 @@ function TStart.Sort(Key1, key2, Key3: string): Boolean;
       Exit(2)
     else if Key.Contains('右側') then
       Exit(3)
-    else if Key.Contains('ハッシュ') then
+    else if Key.Contains('ファイル') then
       Exit(4)
+    else if Key.Contains('ハッシュ') then
+      Exit(5)
     else
-      Exit(-1);
+      Exit(E);
   end;
 
-  function Compare(RowA, RowB: Integer): Integer;
+  function Compare(RowA, RowB: Integer): Int64;
   const
     IDENTICAL = 0;
   begin
@@ -202,9 +207,10 @@ function TStart.Sort(Key1, key2, Key3: string): Boolean;
         var Col := ToColumnIndex(key);
         if Col < 0 then
           raise Exception.Create('存在しない列名に対するソートです...');
-        if Col = 0 then begin
-          var A := Grid.Cells[Col, RowA].ToInteger;
-          var B := Grid.Cells[Col, RowB].ToInteger;
+        if (Col = 0) or         // No, 又は
+           (Col = 4) then begin // ファイルサイズ
+          var A := Grid.Cells[Col, RowA].ToInt64;
+          var B := Grid.Cells[Col, RowB].ToInt64;
           Result := A - B;
         end else begin
           var A := Grid.Cells[Col, RowA];
@@ -226,6 +232,8 @@ begin
       Exchange(J, J + 1);
   end;
   end;
+
+  Result := True;
 end;
 
 function TStart.Load(TextReader: TTextReader): Boolean;
@@ -258,7 +266,8 @@ begin
     Grid.Cells[1, I] := Each.Result;
     Grid.Cells[2, I] := TPath.GetFileName(Each.FileNameA);
     Grid.Cells[3, I] := TPath.GetFileName(Each.FileNameB);
-    Grid.Cells[4, I] := Each.Sha256;
+    Grid.Cells[4, I] := Each.Size.ToString;
+    Grid.Cells[5, I] := Each.Sha256;
     Inc(I);
   end;
 end;
@@ -393,7 +402,7 @@ begin
   FQueue.Clear;
   for I := Grid.Selection.Top to Grid.Selection.Bottom do
     FQueue.Enqueue(TSourceDestination.Create(
-             FolderNameB, FolderNameA, Grid.Cells[3, I]));
+             FolderNameA, FolderNameB, Grid.Cells[3, I]));
   StartCopyFile;
 end;
 
