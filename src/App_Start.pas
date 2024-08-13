@@ -73,6 +73,7 @@ type
   private
     { Private êÈåæ }
     FFolderComparator: TFolderComparator;
+    FOpenFolder: TOpenFolder;
     FShowCopyProgress: TShowProgress;
     FShowHashProgress: TShowProgress;
     FFileCopy: TFileCopy;
@@ -119,6 +120,9 @@ begin
 
   FShowCopyProgress := TShowProgress.Create(Self);
   FShowHashProgress := TShowProgress.Create(Self);
+
+  FOpenFolder := TOpenFolder.Create(Self);
+  FOpenFolder.OnCompare := OnCompare;
 
   FShowCopyProgress.OnCancel := OnCancelFileCopy;
   FShowHashProgress.OnCancel := OnCancelHashCalc;
@@ -310,12 +314,8 @@ begin
 end;
 
 procedure TStart.OnDoOpen(Sender: TObject);
-var
-  OpenFolder: TOpenFolder;
 begin
-  OpenFolder := TOpenFolder.Create(Self);
-  OpenFolder.OnCompare := OnCompare;
-  OpenFolder.ShowModal;
+  FOpenFolder.ShowModal;
 end;
 
 procedure TStart.OnDoSort(Sender: TObject);

@@ -11,6 +11,7 @@ object OpenFolder: TOpenFolder
   Font.Height = -12
   Font.Name = 'Segoe UI'
   Font.Style = []
+  OnClose = OnClose
   TextHeight = 15
   object Panel: TPanel
     Left = 0
@@ -85,6 +86,15 @@ object OpenFolder: TOpenFolder
       ModalResult = 1
       TabOrder = 5
       OnClick = OnDoCompare
+    end
+    object DoExchangeFolders: TButton
+      Left = 406
+      Top = 67
+      Width = 75
+      Height = 27
+      Caption = #20837#26367
+      TabOrder = 6
+      OnClick = OnDoExchangeFolders
     end
   end
   object DoShowFolderChooser: TFileOpenDialog

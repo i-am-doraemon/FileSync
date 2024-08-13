@@ -361,8 +361,6 @@ begin
 end;
 
 procedure TFileCopy.Cancel;
-var
-  P: PChunk;
 begin
   if Assigned(FThread1) then begin
     if FThread1.Started and not FThread1.Finished then begin
