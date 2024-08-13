@@ -48,6 +48,7 @@ type
     constructor Create(DelayTask: TDelayTask);
     destructor Destroy; override;
     procedure Schedule(MilliSecond: Cardinal);
+    procedure Cancel;
   end;
 
   TAvailableCharacterType = (acLowerCase, acUpperCase, acDigits);
@@ -233,6 +234,11 @@ begin
   FTimer.Enabled := False;
   FTimer.Interval := MilliSecond;
   FTimer.Enabled := True;
+end;
+
+procedure TDelayCall.Cancel;
+begin
+  FTimer.Enabled := False;
 end;
 
 constructor TPasswordGenerator.Create(IniFileName: string);

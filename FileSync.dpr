@@ -9,7 +9,8 @@ uses
   App_View_ShowProgress in 'src\App_View_ShowProgress.pas' {ShowProgress},
   App_Utilities in 'src\App_Utilities.pas',
   App_View_PlayVideo in 'src\App_View_PlayVideo.pas' {PlayVideo},
-  App_View_ConfigSorting in 'src\App_View_ConfigSorting.pas' {ConfigSorting};
+  App_View_ConfigSorting in 'src\App_View_ConfigSorting.pas' {ConfigSorting},
+  App_Data_Collection in 'src\App_Data_Collection.pas';
 
 {$R *.res}
 

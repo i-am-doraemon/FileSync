@@ -3,6 +3,9 @@ unit App_Data;
 interface
 
 uses
+  App_Data_Collection,
+  App_Utilities,
+
   System.Classes,
   System.Generics.Collections,
   System.Hash,
@@ -14,6 +17,42 @@ uses
   System.Types;
 
 type
+  THashProgressEvent = reference to procedure(Sender: TObject; Percent: Integer);
+  THashCompleteEvent = reference to procedure(Sender: TObject; Digests: string);
+  THashErrorEvent    = reference to procedure(Sender: TObject; Message: string);
+
+  TDoReadFile = class(TThread)
+  private
+    FFileName: string;
+    FBlockingQueue: TBlockingQueue;
+    FProgressEvent: THashProgressEvent;
+    FCompleteEvent: THashCompleteEvent;
+    FErrorEvent   : THashErrorEvent;
+  protected
+    procedure Execute; override;
+  private
+    procedure FireErrorEvent(Message: string);
+  public
+    constructor Create(FileName: string; BlockingQueue: TBlockingQueue; ProgressEvent: THashProgressEvent;
+                                                                        CompleteEvent: THashCompleteEvent; ErrorEvent: THashErrorEvent);
+  end;
+
+  TDoCalcHash = class(TThread)
+  private
+    FFileName: string;
+    FBlockingQueue: TBlockingQueue;
+    FProgressEvent: THashProgressEvent;
+    FCompleteEvent: THashCompleteEvent;
+    FErrorEvent   : THashErrorEvent;
+  protected
+    procedure Execute; override;
+  private
+    procedure FireCompleteEvent(Digests: string);
+  public
+    constructor Create(FileName: string; BlockingQueue: TBlockingQueue; ProgressEvent: THashProgressEvent;
+                                                                        CompleteEvent: THashCompleteEvent; ErrorEvent: THashErrorEvent);
+  end;
+
   TFileMeta = record
   private
     FIdNo: Integer;
@@ -29,45 +68,6 @@ type
     property Hash: string read FHash;
     property Size: Uint64 read FSize;
     class operator Equal(Left, Right: TFileMeta): Boolean;
-  end;
-
-  TFileMetaDynArray = array of TFileMeta;
-
-  TFileMetaProgressEvent = reference to procedure(Sender: TObject; Percent: Integer);
-  TFileMetaCompleteEvent = reference to procedure(Sender: TObject; FileMetaDynArray: TFileMetaDynArray);
-  TFileMetaErrorEvent    = reference to procedure(Sender: TObject; FileName: string);
-
-  TDoRunInBackground = class(TThread)
-  private
-    FFiles: TStringDynArray;
-    FProgressEvent: TFileMetaProgressEvent;
-    FCompleteEvent: TFileMetaCompleteEvent;
-    FErrorEvent: TFileMetaErrorEvent;
-    procedure FireErrorEvent(Cause: string);
-    procedure FireProgressEvent(Count, Total: Integer);
-    procedure FireCompleteEvent(FileMetaDynArray: TFileMetaDynArray);
-  protected
-    procedure Execute; override;
-  public
-    constructor Create(Files: TStringDynArray; ProgressEvent: TFileMetaProgressEvent;
-                                               CompleteEvent: TFileMetaCompleteEvent;
-                                               ErrorEvent: TFileMetaErrorEvent);
-  end;
-
-  TFileMetaExecutor = record
-  private
-    FFiles: TStringDynArray;
-    FOnProgress: TFileMetaProgressEvent;
-    FOnComplete: TFileMetaCompleteEvent;
-    FOnError: TFileMetaErrorEvent;
-    FThread: TThread;
-  public
-    constructor Create(Files: TStringDynArray);
-    function Start: Boolean;
-    procedure Cancel;
-    property OnProgress: TFileMetaProgressEvent read FOnProgress write FOnProgress;
-    property OnComplete: TFileMetaCompleteEvent read FOnComplete write FOnComplete;
-    property OnError: TFileMetaErrorEvent read FOnError write FOnError;
   end;
 
   TFileComparison = record
@@ -96,14 +96,19 @@ type
     FFolderA: string;
     FFolderB: string;
 
-    FFiles1: TStringDynArray;
-    FFiles2: TStringDynArray;
+    FBlockingQueue: TBlockingQueue;
 
-    FExecutor1: TFileMetaExecutor;
-    FExecutor2: TFileMetaExecutor;
+    FDoReadFile: TDoReadFile;
+    FDoCalcHash: TDoCalcHash;
 
-    FFileHash1: TFileMetaDynArray;
-    FFileHash2: TFileMetaDynArray;
+    FDelayCallA: TDelayCall;
+    FDelayCallB: TDelayCall;
+
+    FFileNamesA: TQueue<string>;
+    FFileNamesB: TQueue<string>;
+
+    FFileDigestsA: TList<TFileMeta>;
+    FFileDigestsB: TList<TFileMeta>;
 
     // 比較結果
 
@@ -116,16 +121,18 @@ type
 
     function Remake(X: TFileMeta; var Count: Integer): TFileMeta;
 
-    procedure OnProgress1(Sender: TObject; Percent: Integer);
-    procedure OnProgress2(Sender: TObject; Percent: Integer);
+    procedure Categorize;
+    procedure Join;
 
-    procedure OnComplete1(Sender: TObject; FileMetaDynArray: TFileMetaDynArray);
-    procedure OnComplete2(Sender: TObject; FileMetaDynArray: TFileMetaDynArray);
+    procedure SetUpNextDigestA;
+    procedure SetUpNextDigestB;
 
-    procedure OnError1(Sender: TObject; FileName: string);
-    procedure OnError2(Sender: TObject; FileName: string);
+    procedure OnHashErrorA(Sender: TObject; Message: string);
+    procedure OnHashErrorB(Sender: TObject; Message: string);
 
-    procedure Sort;
+    procedure OnHashCompleteA(Sender: TObject; Digest: string);
+    procedure OnHashCompleteB(Sender: TObject; Digest: string);
+
   public
     constructor Create(Folder1, Folder2: string);
     destructor Destroy; override;
@@ -133,9 +140,125 @@ type
     function CompareAsync(FolderComparisonCompleteEvent: TFolderComparisonCompleteEvent): Boolean;
     function CreateComparisonResult: TComparisonResult;
     function Save(FileName: string): Boolean;
+    procedure Cancel;
   end;
 
 implementation
+
+constructor TDoReadFile.Create(FileName: string; BlockingQueue: TBlockingQueue; ProgressEvent: THashProgressEvent;
+                                                                                CompleteEvent: THashCompleteEvent; ErrorEvent: THashErrorEvent);
+const
+  SUSPEND_AFTER_THREAD_CREATED = True;
+begin
+  inherited Create(SUSPEND_AFTER_THREAD_CREATED);
+
+  FFileName := FileName;
+  FBlockingQueue := BlockingQueue;
+
+  FProgressEvent := ProgressEvent;
+  FCompleteEvent := CompleteEvent;
+  FErrorEvent    := ErrorEvent;
+end;
+
+procedure TDoReadFile.FireErrorEvent(Message: string);
+begin
+  if Assigned(FErrorEvent) then
+    Synchronize(procedure begin
+      FErrorEvent(Self, Message);
+    end);
+end;
+
+procedure TDoReadFile.Execute;
+const
+  YES = True;
+  NON = False;
+  MAX_READ_SIZE = 1 * 1024 * 1024;
+var
+  Stream: TStream;
+  Position, Size, ReadSize: Int64;
+  Done: Boolean;
+  P: PChunk;
+begin
+  Stream := nil;
+  try
+    Stream := TFileStream.Create(
+                                FFileName, fmOpenRead);
+
+    Position := 0;
+    Size     := Min(Stream.Size, MAX_READ_SIZE);
+    Done := NON;
+
+    while not Terminated and
+                         not Done do begin
+      P := FBlockingQueue.GetWritableChunk;
+      if P = nil then
+        continue;
+      ReadSize := Min(
+           MAX_READ_SIZE - Position, Length(P^.Data));
+      P^.Size := Stream.Read(P^.Data, ReadSize);
+
+      Inc(Position, P^.Size);
+      if Position < Size then
+        Done := NON
+      else
+        Done := YES;
+      P^.Last := Done;
+      FBlockingQueue.Enqueue;
+    end;
+    Stream.Free;
+  except on E: Exception do begin
+      FireErrorEvent(E.Message);
+      Stream.Free;
+    end;
+  end;
+end;
+
+constructor TDoCalcHash.Create(FileName: string; BlockingQueue: TBlockingQueue; ProgressEvent: THashProgressEvent;
+                                                                                CompleteEvent: THashCompleteEvent; ErrorEvent: THashErrorEvent);
+const
+  SUSPEND_AFTER_THREAD_CREATED = True;
+begin
+  inherited Create(SUSPEND_AFTER_THREAD_CREATED);
+  FFileName := FileName;
+  FBlockingQueue := BlockingQueue;
+
+  FProgressEvent := ProgressEvent;
+  FCompleteEvent := CompleteEvent;
+  FErrorEvent    := ErrorEvent;
+end;
+
+procedure TDoCalcHash.FireCompleteEvent(Digests: string);
+begin
+  if Assigned(FCompleteEvent) then
+    Synchronize(procedure begin
+      FCompleteEvent(Self, Digests);
+    end);
+end;
+
+procedure TDoCalcHash.Execute;
+const
+  YES = True;
+  NON = False;
+begin
+  var Done := NON;
+  var Hash := THashSHA2.Create(SHA256);
+
+  while not Terminated and not Done do begin
+    var P := FBlockingQueue.GetReadableChunk;
+
+    if P = nil then
+      continue;
+
+    if P^.Last then
+      Done := YES;
+
+    Hash.Update(P^.Data, P^.Size);
+    FBlockingQueue.Dequeue;
+  end;
+
+  if Done then
+    FireCompleteEvent(Hash.HashAsString);
+end;
 
 constructor TFileMeta.Create(Path: string);
 begin
@@ -143,7 +266,7 @@ begin
     raise Exception.Create(Format('ファイル%sは存在しません。', [Path]));
 
   FName := Path;
-  FHash := GetHash;
+//FHash := GetHash;
   FSize := GetSize;
 end;
 
@@ -204,121 +327,6 @@ begin
   Result := (Left.Hash.Equals(Right.Hash)) and (Left.Size = Right.Size);
 end;
 
-constructor TDoRunInBackground.Create(Files: TStringDynArray; ProgressEvent: TFileMetaProgressEvent;
-                                                              CompleteEvent: TFileMetaCompleteEvent;
-                                                              ErrorEvent: TFileMetaErrorEvent);
-const
-  SUSPEND_AFTER_THREAD_CREATED = True;
-begin
-  inherited Create(SUSPEND_AFTER_THREAD_CREATED);
-
-  Self.FFiles := Files;
-  Self.FProgressEvent := ProgressEvent;
-  Self.FCompleteEvent := CompleteEvent;
-  Self.FErrorEvent := ErrorEvent;
-end;
-
-procedure TDoRunInBackground.FireErrorEvent(Cause: string);
-begin
-  if Assigned(FErrorEvent) then
-    Synchronize(procedure begin
-      FErrorEvent(Self, Cause);
-    end);
-end;
-
-procedure TDoRunInBackground.FireProgressEvent(Count, Total: Integer);
-begin
-  if Assigned(FProgressEvent) then
-    Synchronize(procedure begin
-      FProgressEvent(Self, Round(100 * (Count / Total)));
-    end);
-end;
-
-procedure TDoRunInBackground.FireCompleteEvent(FileMetaDynArray: TFileMetaDynArray);
-begin
-  if Assigned(FCompleteEvent) then
-    Synchronize(procedure begin
-      FCompleteEvent(Self, FileMetaDynArray);
-    end);
-end;
-
-procedure TDoRunInBackground.Execute;
-var
-  FileMetaDynArray: TFileMetaDynArray;
-  Count: Integer;
-begin
-  SetLength(FileMetaDynArray, Length(FFiles));
-
-  Count := 0;
-  for var Each in FFiles do begin
-    if Terminated then Exit;
-
-    try
-      FileMetaDynArray[Count] :=
-                       TFileMeta.Create(Each);
-      Inc(Count);
-    except
-      try
-        Exit;
-      finally
-        FireErrorEvent(Each);
-      end;
-    end;
-
-    FireProgressEvent(Count, Length(FFiles));
-  end;
-
-  FireCompleteEvent(FileMetaDynArray)
-end;
-
-constructor TFileMetaExecutor.Create(Files: TStringDynArray);
-begin
-  FFiles := Files;
-
-  FOnProgress := nil;
-  FOnComplete := nil;
-  FOnError    := nil;
-
-  FThread := nil;
-end;
-
-function TFileMetaExecutor.Start: Boolean;
-const
-  Y   = True;
-  YES = True;
-  NON = False;
-var
-  Running: Boolean;
-begin
-  Running := False;
-
-  if Assigned(FThread) then
-    if FThread.Started and not FThread.Finished then
-      Running := Y
-    else
-      FThread.Free;
-
-  if Running then
-    Result := NON
-  else begin
-    Result  := YES;
-    FThread := TDoRunInBackground.Create(FFiles, FOnProgress,
-                                                 FOnComplete, FOnError);
-    FThread.Start;
-  end;
-end;
-
-procedure TFileMetaExecutor.Cancel;
-begin
-  if Assigned(FThread) then begin
-    if FThread.Started and not FThread.Finished then begin
-      FThread.Terminate;
-      FThread.WaitFor;
-    end;
-    FreeAndNil(FThread);
-  end;
-end;
-
 constructor TFileComparison.Create(Unique: Integer; Result, Sha256, FileNameA, FileNameB: string; Size: Int64);
 begin
   Self.Unique := Unique;
@@ -330,14 +338,27 @@ begin
 end;
 
 constructor TFolderComparator.Create(Folder1, Folder2: string);
+const
+  QUEUE_SIZE = 16;
 begin
   inherited Create;
 
-  FFiles1 := TDirectory.GetFiles(Folder1);
-  FFiles2 := TDirectory.GetFiles(Folder2);
+  FFileDigestsA := TList<TFileMeta>.Create;
+  FFileDigestsB := TList<TFileMeta>.Create;
+
+  FFileNamesA := TQueue<string>.Create;
+  FFileNamesB := TQueue<string>.Create;
+
+  for var Each in TDirectory.GetFiles(Folder1) do FFileNamesA.Enqueue(Each);
+  for var Each in TDirectory.GetFiles(Folder2) do FFileNamesB.Enqueue(Each);
 
   FFolderA := Folder1;
   FFolderB := Folder2;
+
+  FBlockingQueue := TBlockingQueue.Create(QUEUE_SIZE);
+
+  FDelayCallA := TDelayCall.Create(SetUpNextDigestA);
+  FDelayCallB := TDelayCall.Create(SetUpNextDigestB);
 
   FIdenticalL := TList<TFileMeta>.Create;
   FIdenticalR := TList<TFileMeta>.Create;
@@ -348,14 +369,27 @@ end;
 
 destructor TFolderComparator.Destroy;
 begin
+  FDelayCallA.Free;
+  FDelayCallB.Free;
+
+  Join;
+
+  FFileDigestsA.Free;
+  FFileDigestsB.Free;
+
   FIdenticalL.Free;
   FIdenticalR.Free;
 
   FOnlyL.Free;
   FOnlyR.Free;
+
+  FFileNamesA.Free;
+  FFileNamesB.Free;
+
+  FBlockingQueue.Free;
 end;
 
-procedure TFolderComparator.Sort;
+procedure TFolderComparator.Categorize;
 begin
   FIdenticalL.Clear;
   FIdenticalR.Clear;
@@ -364,8 +398,8 @@ begin
 
   var Count := 0;
 
-  for var A in FFileHash1 do begin
-  for var B in FFileHash2 do begin
+  for var A in FFileDigestsA do begin
+  for var B in FFileDigestsB do begin
     if A = B then begin
       var L := A; // 左
       var R := B; // 右
@@ -381,9 +415,9 @@ begin
   end;
 
   // 左はあるが右はない場合
-  for var A in FFileHash1 do begin
+  for var A in FFileDigestsA do begin
     var Found := False;
-  for var B in FFileHash2 do begin
+  for var B in FFileDigestsB do begin
     if A = B then
       Found := True;
   end;
@@ -392,9 +426,9 @@ begin
   end;
 
   // 右はあるが左はない場合
-  for var B in FFileHash2 do begin
+  for var B in FFileDigestsB do begin
     var Found := False;
-  for var A in FFileHash1 do begin
+  for var A in FFileDigestsA do begin
     if B = A then
       Found := True;
   end;
@@ -405,8 +439,107 @@ begin
   FFolderComparisonCompleteEvent(Self, FIdenticalL, FIdenticalR, FOnlyL, FOnlyR);
 end;
 
-procedure TFolderComparator.OnProgress1(Sender: TObject; Percent: Integer);
+procedure TFolderComparator.Join;
 begin
+  if Assigned(FDoReadFile) then begin
+    FDoReadFile.Terminate;
+    FDoReadFile.WaitFor;
+    FDoReadFile.Free;
+  end;
+
+  if Assigned(FDoCalcHash) then begin
+    FDoCalcHash.Terminate;
+    FDoCalcHash.WaitFor;
+    FDoCalcHash.Free;
+  end;
+
+  FDoReadFile := nil;
+  FDoCalcHash := nil;
+end;
+
+procedure TFolderComparator.SetUpNextDigestA;
+begin
+  if FFileNamesA.Count > 0 then begin
+    Join;
+    FBlockingQueue.Reset;
+
+    FDoReadFile := TDoReadFile.Create(FFileNamesA.Peek,
+                            FBlockingQueue, nil, OnHashCompleteA, OnHashErrorA);
+    FDoCalcHash := TDoCalcHash.Create(FFileNamesA.Peek,
+                            FBlockingQueue, nil, OnHashCompleteA, OnHashErrorA);
+
+    FDoReadFile.Start;
+    FDoCalcHash.Start;
+  end else
+    SetUpNextDigestB;
+end;
+
+procedure TFolderComparator.SetUpNextDigestB;
+begin
+  if FFileNamesB.Count > 0 then begin
+    Join;
+    FBlockingQueue.Reset;
+
+    FDoReadFile := TDoReadFile.Create(FFileNamesB.Peek,
+                            FBlockingQueue, nil, OnHashCompleteB, OnHashErrorB);
+    FDoCalcHash := TDoCalcHash.Create(FFileNamesB.Peek,
+                            FBlockingQueue, nil, OnHashCompleteB, OnHashErrorB);
+
+    FDoReadFile.Start;
+    FDoCalcHash.Start;
+  end else begin
+    Categorize;
+    if Assigned(FFolderComparisonCompleteEvent) then
+      FFolderComparisonCompleteEvent(Self, FIdenticalL,
+                                           FIdenticalR, FOnlyL, FOnlyR);
+  end;
+end;
+
+procedure TFolderComparator.Cancel;
+begin
+  FFileNamesA.Clear;
+  FFileNamesB.Clear;
+
+  FDelayCallA.Cancel;
+  FDelayCallB.Cancel;
+
+  Join;
+end;
+
+procedure TFolderComparator.OnHashErrorA(Sender: TObject; Message: string);
+const
+  ERROR = 'ERROR';
+begin
+  var Meta := TFileMeta.Create(FFileNamesA.Dequeue);
+  Meta.FHash := ERROR;
+  FFileDigestsA.Add(Meta);
+  FDelayCallA.Schedule(8);
+end;
+
+procedure TFolderComparator.OnHashErrorB(Sender: TObject; Message: string);
+const
+  ERROR = 'ERROR';
+begin
+  var Meta := TFileMeta.Create(FFileNamesB.Dequeue);
+  Meta.FHash := ERROR;
+  FFileDigestsB.Add(Meta);
+  FDelayCallB.Schedule(8);
+end;
+
+procedure TFolderComparator.OnHashCompleteA(Sender: TObject; Digest: string);
+begin
+  var Meta := TFileMeta.Create(FFileNamesA.Dequeue);
+  Meta.FHash := Digest;
+  FFileDigestsA.Add(Meta);
+  FDelayCallA.Schedule(8);
+end;
+
+procedure TFolderComparator.OnHashCompleteB(Sender: TObject; Digest: string);
+begin
+  var Meta := TFileMeta.Create(FFileNamesB.Dequeue);
+  Meta.FHash := Digest;
+  FFileDigestsB.Add(Meta);
+  FDelayCallB.Schedule(8);
 end;
 
 function TFolderComparator.CreateComparisonResult: TComparisonResult;
@@ -502,49 +635,8 @@ end;
 function TFolderComparator.CompareASync(FolderComparisonCompleteEvent: TFolderComparisonCompleteEvent): Boolean;
 begin
   FFolderComparisonCompleteEvent := FolderComparisonCompleteEvent;
-
-  FExecutor1.Cancel;
-  FExecutor2.Cancel;
-
-  FExecutor1 := TFileMetaExecutor.Create(FFiles1);
-  FExecutor2 := TFileMetaExecutor.Create(FFiles2);
-
-  FExecutor1.OnProgress := OnProgress1;
-  FExecutor2.OnProgress := OnProgress2;
-
-  FExecutor1.OnComplete := OnComplete1;
-  FExecutor2.OnComplete := OnComplete2;
-
-  FExecutor1.OnError := OnError1;
-  FExecutor2.OnError := OnError2;
-
-  FExecutor1.Start;
-
+  FDelayCallA.Schedule(8);
   Result := True;
-end;
-
-procedure TFolderComparator.OnError1(Sender: TObject; FileName: string);
-begin
-end;
-
-procedure TFolderComparator.OnError2(Sender: TObject; FileName: string);
-begin
-end;
-
-procedure TFolderComparator.OnProgress2(Sender: TObject; Percent: Integer);
-begin
-end;
-
-procedure TFolderComparator.OnComplete1(Sender: TObject; FileMetaDynArray: TFileMetaDynArray);
-begin
-  FFileHash1 := FileMetaDynArray;
-  FExecutor2.Start;
-end;
-
-procedure TFolderComparator.OnComplete2(Sender: TObject; FileMetaDynArray: TFileMetaDynArray);
-begin
-  FFileHash2 := FileMetaDynArray;
-  Sort;
 end;
 
 end.

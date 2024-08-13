@@ -72,7 +72,8 @@ type
   private
     { Private 宣言 }
     FFolderComparator: TFolderComparator;
-    FShowProgress: TShowProgress;
+    FShowCopyProgress: TShowProgress;
+    FShowHashProgress: TShowProgress;
     FFileCopy: TFileCopy;
     FLastUpdateTime: TDateTime;
     FLastUpdateSize: Int64;
@@ -91,6 +92,7 @@ type
     procedure OnFinishFileCopy(Sender: TObject);
     procedure OnCancelFileCopy(Sender: TObject);
     procedure OnFailedFileCopy(Sender: TObject);
+    procedure OnCancelHashCalc(Sender: TObject);
     procedure OnCompare(Sender: TObject; Folder1, Folder2: string);
     procedure OnDoneCompareFolders(Sender: TObject; IdenticalA, IdenticalB, Left, Right: TList<TFileMeta>);
   public
@@ -114,8 +116,11 @@ begin
   Grid.Cells[4, 0] := 'ファイルサイズ';
   Grid.Cells[5, 0] := 'ハッシュ値(SHA256)';
 
-  FShowProgress := TShowProgress.Create(Self);
-  FShowProgress.OnCancel := OnCancelFileCopy;
+  FShowCopyProgress := TShowProgress.Create(Self);
+  FShowHashProgress := TShowProgress.Create(Self);
+
+  FShowCopyProgress.OnCancel := OnCancelFileCopy;
+  FShowHashProgress.OnCancel := OnCancelHashCalc;
 
   FQueue := TQueue<TSourceDestination>.Create;
 
@@ -287,8 +292,8 @@ begin
                            SourceDestination.Destination) then
       raise Exception.Create('既に別のファイルコピーが進行中です。');
 
-    FShowProgress.Description := Format('「%s」から「%s」へコピーしてます。', [SourceDestination.Source, SourceDestination.Destination]);
-    FShowProgress.ShowModal;
+    FShowCopyProgress.Description := Format('「%s」から「%s」へコピーしてます。', [SourceDestination.Source, SourceDestination.Destination]);
+    FShowCopyProgress.ShowModal;
   except on E: Exception do
     try
       FQueue.Clear;
@@ -339,13 +344,13 @@ begin
   FLastUpdateTime := CurrentTime;
   FLastUpdateSize := CopiedBytes;
 
-  FShowProgress.Position := Round(100 * (CopiedBytes / FFileCopy.CopySize));
+  FShowCopyProgress.Position := Round(100 * (CopiedBytes / FFileCopy.CopySize));
 end;
 
 procedure TStart.OnFinishFileCopy(Sender: TObject);
 begin
   StatusBar.SimpleText := string.Empty;
-  FShowProgress.ModalResult := mrOK;
+  FShowCopyProgress.ModalResult := mrOK;
 
   if FQueue.Count > 0 then
     FDelayCall.Schedule(200);
@@ -354,6 +359,12 @@ end;
 procedure TStart.OnCancelFileCopy(Sender: TObject);
 begin
   FFileCopy.Cancel;
+end;
+
+procedure TStart.OnCancelHashCalc(Sender: TObject);
+begin
+  FFolderComparator.Cancel;
+  StatusBar.SimpleText := string.Empty;
 end;
 
 procedure TStart.OnFailedFileCopy(Sender: TObject);
@@ -429,6 +440,7 @@ procedure TStart.OnDoneCompareFolders(Sender: TObject; IdenticalA,
 begin
   SetGrid(FFolderComparator.CreateComparisonResult);
   StatusBar.SimpleText := string.Empty;
+  FShowHashProgress.ModalResult := mrOk;
 end;
 
 procedure TStart.OnCompare(Sender: TObject; Folder1, Folder2: string);
@@ -439,9 +451,10 @@ begin
   FFolderComparator.Free;
   FFolderComparator := TFolderComparator.Create(Folder1, Folder2);
 
-  if FFolderComparator.CompareAsync(OnDoneCompareFolders) then
-    StatusBar.SimpleText := '指定されたフォルダ内にある各ファイルのハッシュ値を計算中です...'
-  else
+  if FFolderComparator.CompareAsync(OnDoneCompareFolders) then begin
+    StatusBar.SimpleText := '指定されたフォルダ内にある各ファイルのハッシュ値を計算中です...';
+    FShowHashProgress.ShowModal;
+  end else
     ShowMessage('既に実行中です。');
 end;
 
