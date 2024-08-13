@@ -28,6 +28,7 @@ type
     FProgressEvent: THashProgressEvent;
     FCompleteEvent: THashCompleteEvent;
     FErrorEvent   : THashErrorEvent;
+    FMaxReadSize: Int64;
   protected
     procedure Execute; override;
   private
@@ -35,6 +36,7 @@ type
   public
     constructor Create(FileName: string; BlockingQueue: TBlockingQueue; ProgressEvent: THashProgressEvent;
                                                                         CompleteEvent: THashCompleteEvent; ErrorEvent: THashErrorEvent);
+    procedure SetMaxReadSize(MaxReadSize: Int64);
   end;
 
   TDoCalcHash = class(TThread)
@@ -110,6 +112,8 @@ type
     FFileDigestsA: TList<TFileMeta>;
     FFileDigestsB: TList<TFileMeta>;
 
+    FMaxReadSize: Int64;
+
     // 比較結果
 
     FIdenticalL: TList<TFileMeta>; // 同一(左側)
@@ -138,9 +142,12 @@ type
     destructor Destroy; override;
 
     function CompareAsync(FolderComparisonCompleteEvent: TFolderComparisonCompleteEvent): Boolean;
+    procedure Cancel;
+
     function CreateComparisonResult: TComparisonResult;
     function Save(FileName: string): Boolean;
-    procedure Cancel;
+
+    property MaxReadSize: Int64 read FMaxReadSize write FMaxReadSize;
   end;
 
 implementation
@@ -149,6 +156,7 @@ constructor TDoReadFile.Create(FileName: string; BlockingQueue: TBlockingQueue; 
                                                                                 CompleteEvent: THashCompleteEvent; ErrorEvent: THashErrorEvent);
 const
   SUSPEND_AFTER_THREAD_CREATED = True;
+  MAX_READ_SIZE = 1 * 1024 * 1024; // バイト
 begin
   inherited Create(SUSPEND_AFTER_THREAD_CREATED);
 
@@ -158,6 +166,16 @@ begin
   FProgressEvent := ProgressEvent;
   FCompleteEvent := CompleteEvent;
   FErrorEvent    := ErrorEvent;
+
+  FMaxReadSize := MAX_READ_SIZE;
+end;
+
+procedure TDoReadFile.SetMaxReadSize(MaxReadSize: Int64);
+begin
+  if MaxReadSize < 0 then
+    FMaxReadSize := $2000000000 // 128GB
+  else
+    FMaxReadSize := MaxReadSize;
 end;
 
 procedure TDoReadFile.FireErrorEvent(Message: string);
@@ -172,10 +190,9 @@ procedure TDoReadFile.Execute;
 const
   YES = True;
   NON = False;
-  MAX_READ_SIZE = 1 * 1024 * 1024;
 var
   Stream: TStream;
-  Position, Size, ReadSize: Int64;
+  MaxReadSize, Position, Size, ReadSize: Int64;
   Done: Boolean;
   P: PChunk;
 begin
@@ -185,7 +202,8 @@ begin
                                 FFileName, fmOpenRead);
 
     Position := 0;
-    Size     := Min(Stream.Size, MAX_READ_SIZE);
+    MaxReadSize := FMaxReadSize;
+    Size := Min(Stream.Size, MaxReadSize);
     Done := NON;
 
     while not Terminated and
@@ -194,7 +212,7 @@ begin
       if P = nil then
         continue;
       ReadSize := Min(
-           MAX_READ_SIZE - Position, Length(P^.Data));
+              MaxReadSize - Position, Length(P^.Data));
       P^.Size := Stream.Read(P^.Data, ReadSize);
 
       Inc(Position, P^.Size);
@@ -340,6 +358,7 @@ end;
 constructor TFolderComparator.Create(Folder1, Folder2: string);
 const
   QUEUE_SIZE = 16;
+  DEFAULT_READ_SIZE = 1 * 1024 * 1024; // バイト
 begin
   inherited Create;
 
@@ -365,6 +384,8 @@ begin
 
   FOnlyL := TList<TFileMeta>.Create;
   FOnlyR := TList<TFileMeta>.Create;
+
+  FMaxReadSize := DEFAULT_READ_SIZE;
 end;
 
 destructor TFolderComparator.Destroy;
@@ -468,6 +489,8 @@ begin
     FDoCalcHash := TDoCalcHash.Create(FFileNamesA.Peek,
                             FBlockingQueue, nil, OnHashCompleteA, OnHashErrorA);
 
+    FDoReadFile.SetMaxReadSize(FMaxReadSize);
+
     FDoReadFile.Start;
     FDoCalcHash.Start;
   end else
@@ -484,6 +507,8 @@ begin
                             FBlockingQueue, nil, OnHashCompleteB, OnHashErrorB);
     FDoCalcHash := TDoCalcHash.Create(FFileNamesB.Peek,
                             FBlockingQueue, nil, OnHashCompleteB, OnHashErrorB);
+
+    FDoReadFile.SetMaxReadSize(FMaxReadSize);
 
     FDoReadFile.Start;
     FDoCalcHash.Start;

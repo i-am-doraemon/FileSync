@@ -13,6 +13,7 @@ uses
 
   System.Classes,
   System.Generics.Collections,
+  System.IniFiles,
   System.IOUtils,
   System.JSON.Serializers,
   System.SysUtils,
@@ -444,12 +445,21 @@ begin
 end;
 
 procedure TStart.OnCompare(Sender: TObject; Folder1, Folder2: string);
+const
+  INI_FILE_EXTENSION = '.ini';
 begin
   Grid.Cells[2, 0] := Folder1;
   Grid.Cells[3, 0] := Folder2;
 
   FFolderComparator.Free;
   FFolderComparator := TFolderComparator.Create(Folder1, Folder2);
+
+  var IniFile := TIniFile.Create(ChangeFileExt(Application.ExeName, INI_FILE_EXTENSION));
+  try
+    FFolderComparator.MaxReadSize := IniFile.ReadInteger('DIGEST', 'MAX_READ_SIZE', 1 * 1024 * 1024);
+  finally
+    IniFile.Free;
+  end;
 
   if FFolderComparator.CompareAsync(OnDoneCompareFolders) then begin
     StatusBar.SimpleText := '指定されたフォルダ内にある各ファイルのハッシュ値を計算中です...';
