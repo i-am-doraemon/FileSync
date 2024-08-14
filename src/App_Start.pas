@@ -97,6 +97,7 @@ type
     procedure OnFailedFileCopy(Sender: TObject);
     procedure OnCancelHashCalc(Sender: TObject);
     procedure OnCompare(Sender: TObject; Folder1, Folder2: string);
+    procedure OnComparingFolders(Sender: TObject; FileName: string; Nth, Total: Integer);
     procedure OnDoneCompareFolders(Sender: TObject; IdenticalA, IdenticalB, Left, Right: TList<TFileMeta>);
   public
     { Public 宣言 }
@@ -441,6 +442,11 @@ begin
   end;
 end;
 
+procedure TStart.OnComparingFolders(Sender: TObject; FileName: string; Nth, Total: Integer);
+begin
+  FShowHashProgress.Description := Format('(%d/%d) 「%s」のハッシュ値を計算中です...', [Nth, Total, FileName]);
+end;
+
 procedure TStart.OnDoneCompareFolders(Sender: TObject; IdenticalA,
                                                        IdenticalB, Left, Right: TList<TFileMeta>);
 begin
@@ -458,6 +464,7 @@ begin
 
   FFolderComparator.Free;
   FFolderComparator := TFolderComparator.Create(Folder1, Folder2);
+  FFolderComparator.OnProgress := OnComparingFolders;
 
   var IniFile := TIniFile.Create(ChangeFileExt(Application.ExeName, INI_FILE_EXTENSION));
   try

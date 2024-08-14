@@ -91,6 +91,7 @@ type
     FileComparisonList: TFileComparisonList;
   end;
 
+  TFolderComparisonProgressEvent = reference to procedure(Sender: TObject; FileName: string; Nth, Total: Integer);
   TFolderComparisonCompleteEvent = reference to procedure(Sender: TObject; IdenticalA, IdenticalB, Left, Right: TList<TFileMeta>);
 
   TFolderComparator = class(TObject)
@@ -123,9 +124,13 @@ type
     FOnlyL: TList<TFileMeta>;      // 左のみ
     FOnlyR: TList<TFileMeta>;      // 右のみ
 
+    // イベント
+
+    FFolderComparisonProgressEvent: TFolderComparisonProgressEvent;
     FFolderComparisonCompleteEvent: TFolderComparisonCompleteEvent;
 
     function Remake(X: TFileMeta; var Count: Integer): TFileMeta;
+    function GetTotal: Integer;
 
     procedure Categorize;
     procedure Join;
@@ -150,6 +155,7 @@ type
     function Save(FileName: string): Boolean;
 
     property MaxReadSize: Int64 read FMaxReadSize write FMaxReadSize;
+    property OnProgress: TFolderComparisonProgressEvent read FFolderComparisonProgressEvent write FFolderComparisonProgressEvent;
   end;
 
 implementation
@@ -480,17 +486,25 @@ begin
 end;
 
 procedure TFolderComparator.SetUpNextDigestA;
+var
+  FileName: string;
 begin
   if FFileNamesA.Count > 0 then begin
     Join;
     FBlockingQueue.Reset;
 
-    FDoReadFile := TDoReadFile.Create(FFileNamesA.Peek,
+    FileName := FFileNamesA.Peek;
+
+    FDoReadFile := TDoReadFile.Create(FileName,
                             FBlockingQueue, nil, OnHashCompleteA, OnHashErrorA);
-    FDoCalcHash := TDoCalcHash.Create(FFileNamesA.Peek,
+    FDoCalcHash := TDoCalcHash.Create(FileName,
                             FBlockingQueue, nil, OnHashCompleteA, OnHashErrorA);
 
     FDoReadFile.SetMaxReadSize(FMaxReadSize);
+
+    if Assigned(FFolderComparisonProgressEvent) then
+      FFolderComparisonProgressEvent(Self, FileName, FFileDigestsA.Count
+                                                   + FFileDigestsB.Count, GetTotal);
 
     FDoReadFile.Start;
     FDoCalcHash.Start;
@@ -499,17 +513,25 @@ begin
 end;
 
 procedure TFolderComparator.SetUpNextDigestB;
+var
+  FileName: string;
 begin
   if FFileNamesB.Count > 0 then begin
     Join;
     FBlockingQueue.Reset;
 
-    FDoReadFile := TDoReadFile.Create(FFileNamesB.Peek,
+    FileName := FFileNamesB.Peek;
+
+    FDoReadFile := TDoReadFile.Create(FileName,
                             FBlockingQueue, nil, OnHashCompleteB, OnHashErrorB);
-    FDoCalcHash := TDoCalcHash.Create(FFileNamesB.Peek,
+    FDoCalcHash := TDoCalcHash.Create(FileName,
                             FBlockingQueue, nil, OnHashCompleteB, OnHashErrorB);
 
     FDoReadFile.SetMaxReadSize(FMaxReadSize);
+
+    if Assigned(FFolderComparisonProgressEvent) then
+      FFolderComparisonProgressEvent(Self, FileName, FFileDigestsA.Count
+                                                   + FFileDigestsB.Count, GetTotal);
 
     FDoReadFile.Start;
     FDoCalcHash.Start;
@@ -629,6 +651,13 @@ begin
   Result := X;
   Result.FIdNo := Count;
   Inc(Count);
+end;
+
+function TFolderComparator.GetTotal: Integer;
+begin
+  Result := FFileNamesA.Count
+          + FFileNamesB.Count + FFileDigestsA.Count
+                              + FFileDigestsB.Count;
 end;
 
 function TFolderComparator.Save(FileName: string): Boolean;
