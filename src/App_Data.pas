@@ -106,6 +106,8 @@ type
     FDelayCallA: TDelayCall;
     FDelayCallB: TDelayCall;
 
+    CalculatingNow: Boolean;
+
     FFileNamesA: TQueue<string>;
     FFileNamesB: TQueue<string>;
 
@@ -362,14 +364,13 @@ const
 begin
   inherited Create;
 
+  CalculatingNow := False;
+
   FFileDigestsA := TList<TFileMeta>.Create;
   FFileDigestsB := TList<TFileMeta>.Create;
 
   FFileNamesA := TQueue<string>.Create;
   FFileNamesB := TQueue<string>.Create;
-
-  for var Each in TDirectory.GetFiles(Folder1) do FFileNamesA.Enqueue(Each);
-  for var Each in TDirectory.GetFiles(Folder2) do FFileNamesB.Enqueue(Each);
 
   FFolderA := Folder1;
   FFolderB := Folder2;
@@ -513,10 +514,12 @@ begin
     FDoReadFile.Start;
     FDoCalcHash.Start;
   end else begin
+    Join;
     Categorize;
     if Assigned(FFolderComparisonCompleteEvent) then
       FFolderComparisonCompleteEvent(Self, FIdenticalL,
                                            FIdenticalR, FOnlyL, FOnlyR);
+      CalculatingNow := False;
   end;
 end;
 
@@ -529,6 +532,8 @@ begin
   FDelayCallB.Cancel;
 
   Join;
+
+  CalculatingNow := False;
 end;
 
 procedure TFolderComparator.OnHashErrorA(Sender: TObject; Message: string);
@@ -659,7 +664,27 @@ end;
 
 function TFolderComparator.CompareASync(FolderComparisonCompleteEvent: TFolderComparisonCompleteEvent): Boolean;
 begin
+  if CalculatingNow then
+    raise Exception.Create('ä˘Ç…î‰äríÜÇ≈Ç∑ÅB');
+
   FFolderComparisonCompleteEvent := FolderComparisonCompleteEvent;
+
+  FFileNamesA.Clear;
+  FFileNamesB.Clear;
+
+  for var Each in TDirectory.GetFiles(FFolderA) do FFileNamesA.Enqueue(Each);
+  for var Each in TDirectory.GetFiles(FFolderB) do FFileNamesB.Enqueue(Each);
+
+  FFileDigestsA.Clear;
+  FFileDigestsB.Clear;
+
+  FIdenticalL.Clear;
+  FIdenticalR.Clear;
+
+  FOnlyL.Clear;
+  FOnlyR.Clear;
+
+  CalculatingNow := True;
   FDelayCallA.Schedule(8);
   Result := True;
 end;
