@@ -16,6 +16,18 @@ uses
   Winapi.Windows, Vcl.ComCtrls, Vcl.ExtCtrls;
 
 type
+  PPUint64 = ^PUInt64;
+  TMyVideoInitialize = function: Integer;
+  TMyVideoGetCodecId = function(FileName: PAnsiChar): Integer;
+  TMyVideoCreateM2tsPipeline = function(PPipeline: PPUInt64): Integer;
+  TMyVideoCreateH264Pipeline = function(PPipeline: PPUInt64): Integer;
+  TMyVideoCreateH265Pipeline = function(PPipeline: PPUInt64): Integer;
+  TMyVideoDeletePipeline = function(PPipeline: PUInt64): Integer;
+  TMyVideoPlayback = function(Pipeline: PUInt64; FileName: PAnsiChar; Handle: HWnd): Integer;
+  TMyVideoStop = function(Pipeline: PUInt64): Integer;
+  TMyVideoGetDuration = function(Pipeline: PUInt64): Integer;
+  TMyVideoGetPosition = function(Pipeline: PUInt64): Integer;
+
   TPlayVideo = class(TForm)
     TrackBar: TTrackBar;
     Panel: TPanel;
@@ -28,26 +40,35 @@ type
     FPipeline: PUInt64;
     FDuration: Integer;
     FPosition: Integer;
+
+    FModule: HMODULE;
+
+    MyVideoInitialize: TMyVideoInitialize;
+    MyVideoGetCodecId: TMyVideoGetCodecId;
+
+    MyVideoCreateM2tsPipeline: TMyVideoCreateM2tsPipeline;
+    MyVideoCreateH264Pipeline: TMyVideoCreateH264Pipeline;
+    MyVideoCreateH265Pipeline: TMyVideoCreateH265Pipeline;
+    MyVideoDeletePipeline: TMyVideoDeletePipeline;
+
+    MyVideoPlayback: TMyVideoPlayback;
+    MyVideoStop: TMyVideoStop;
+
+    MyVideoGetDuration: TMyVideoGetDuration;
+    MyVideoGetPosition: TMyVideoGetPosition;
+
     function ToHhmmssFormat(Seconds: Integer): string;
     procedure OnPlayingBack(Sender: TObject);
   public
     { Public êÈåæ }
     constructor Create(Owner: TComponent);
+
+    function LoadDll: Boolean;
+    function FreeDll: Boolean;
+
     procedure Play(FileName: string);
     procedure Stop;
   end;
-  PPUint64 = ^PUInt64;
-
-  function MyVideoInitialize: Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_initialize';
-  function MyVideoGetCodecId(FileName: PAnsiChar): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_get_codec_id';
-  function MyVideoCreateM2tsPipeline(PPipeline: PPUInt64): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_create_m2ts_pipeline';
-  function MyVideoCreateH264Pipeline(PPipeline: PPUInt64): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_create_h264_pipeline';
-  function MyVideoCreateH265Pipeline(PPipeline: PPUInt64): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_create_h265_pipeline';
-  function MyVideoDeletePipeline(PPipeline: PUInt64): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_delete_pipeline';
-  function MyVideoPlayback(Pipeline: PUInt64; FileName: PAnsiChar; Handle: HWnd): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_playback';
-  function MyVideoStop(Pipeline: PUInt64): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_stop';
-  function MyVideoGetDuration(Pipeline: PUInt64): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_get_duration';
-  function MyVideoGetPosition(Pipeline: PUInt64): Integer; stdcall; external 'libmyvideo.dll' name 'myvideo_get_position';
 
 implementation
 
@@ -56,7 +77,65 @@ implementation
 constructor TPlayVideo.Create(Owner: TComponent);
 begin
   inherited Create(Owner);
-  MyVideoInitialize;
+end;
+
+function TPlayVideo.LoadDll: Boolean;
+const
+  LIBRARY_NAME = 'libmyvideo.dll';
+begin
+  Result := False;
+
+  FModule := LoadLibrary(LIBRARY_NAME);
+  if FModule <> 0 then begin
+    MyVideoInitialize := GetProcAddress(FModule, 'myvideo_initialize');
+    MyVideoGetCodecId := GetProcAddress(FModule, 'myvideo_get_codec_id');
+
+    MyVideoCreateM2tsPipeline := GetProcAddress(FModule, 'myvideo_create_m2ts_pipeline');
+    MyVideoCreateH264Pipeline := GetProcAddress(FModule, 'myvideo_create_h264_pipeline');
+    MyVideoCreateH265Pipeline := GetProcAddress(FModule, 'myvideo_create_h265_pipeline');
+    MyVideoDeletePipeline := GetProcAddress(FModule, 'myvideo_delete_pipeline');
+
+    MyVideoPlayback := GetProcAddress(FModule, 'myvideo_playback');
+    MyVideoStop := GetProcAddress(FModule, 'myvideo_stop');
+
+    MyVideoGetDuration := GetProcAddress(FModule, 'myvideo_get_duration');
+    MyVideoGetPosition := GetProcAddress(FModule, 'myvideo_get_position');
+  end else begin
+    MyVideoInitialize := nil;
+    MyVideoGetCodecId := nil;
+
+    MyVideoCreateM2tsPipeline := nil;
+    MyVideoCreateH264Pipeline := nil;
+    MyVideoCreateH265Pipeline := nil;
+    MyVideoDeletePipeline := nil;
+
+    MyVideoPlayback := nil;
+    MyVideoStop := nil;
+
+    MyVideoGetDuration := nil;
+    MyVideoGetPosition := nil;
+  end;
+
+  if Assigned(MyVideoInitialize) and
+     Assigned(MyVideoGetCodecId) and
+     Assigned(MyVideoCreateM2tsPipeline) and
+     Assigned(MyVideoCreateH264Pipeline) and
+     Assigned(MyVideoCreateH265Pipeline) and
+     Assigned(MyVideoDeletePipeline) and
+     Assigned(MyVideoPlayback) and
+     Assigned(MyVideoStop) and
+     Assigned(MyVideoGetDuration) and
+     Assigned(MyVideoGetPosition) then Result := True;
+
+  if Result then
+    MyVideoInitialize;
+end;
+
+function TPlayVideo.FreeDll: Boolean;
+begin
+  if FModule <> 0 then
+    FreeLibrary(FModule);
+  FModule := 0;
 end;
 
 function TPlayVideo.ToHhmmssFormat(Seconds: Integer): string;

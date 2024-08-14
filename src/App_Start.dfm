@@ -2,8 +2,8 @@ object Start: TStart
   Left = 0
   Top = 0
   Caption = 'FileSync'
-  ClientHeight = 424
-  ClientWidth = 556
+  ClientHeight = 421
+  ClientWidth = 544
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clWindowText
@@ -16,8 +16,8 @@ object Start: TStart
   object Grid: TStringGrid
     Left = 0
     Top = 0
-    Width = 556
-    Height = 405
+    Width = 544
+    Height = 402
     Align = alClient
     ColCount = 6
     RowCount = 10
@@ -28,14 +28,14 @@ object Start: TStart
   end
   object StatusBar: TStatusBar
     Left = 0
-    Top = 405
-    Width = 556
+    Top = 402
+    Width = 544
     Height = 19
     Panels = <>
     SimplePanel = True
   end
   object MainMenu: TMainMenu
-    Left = 536
+    Left = 496
     Top = 16
     object FileMenu: TMenuItem
       Caption = #12501#12449#12452#12523
@@ -65,7 +65,7 @@ object Start: TStart
     end
   end
   object PopupMenu: TPopupMenu
-    Left = 536
+    Left = 496
     Top = 72
     object DoWatchThisVideo: TMenuItem
       Caption = #12371#12398#21205#30011#12434#35222#32884#12377#12427
@@ -83,13 +83,13 @@ object Start: TStart
   object DoShowSaveDialog: TSaveDialog
     DefaultExt = '*.json'
     Filter = 'JSON|*.JSON,*.json'
-    Left = 536
+    Left = 496
     Top = 128
   end
   object DoShowOpenDialog: TOpenDialog
     DefaultExt = '*.json'
     Filter = 'JSON|*.JSON,*.json'
-    Left = 536
+    Left = 496
     Top = 184
   end
 end

@@ -83,6 +83,7 @@ type
     FDelayCall: TDelayCall;
     FVideoPlayer: TPlayVideo;
     FSortPreference: TConfigSorting;
+    FCanWatchVideo: Boolean;
     function ContainAll(Col, Top, Bottom: Integer; Key: string): Boolean;
     function IsMultipleRowSelected(Top, Bottom: Integer): Boolean;
     function Sort(Key1, key2, Key3: string): Boolean;
@@ -115,6 +116,8 @@ begin
 
   Grid.Cells[0, 0] := 'No';
   Grid.Cells[1, 0] := '比較結果';
+  Grid.Cells[2, 0] := '左フォルダ';
+  Grid.Cells[3, 0] := '右フォルダ';
   Grid.Cells[4, 0] := 'ファイルサイズ';
   Grid.Cells[5, 0] := 'ハッシュ値(SHA256)';
 
@@ -137,6 +140,7 @@ begin
   FDelayCall := TDelayCall.Create(StartCopyFile);
 
   FVideoPlayer := TPlayVideo.Create(Self);
+  FCanWatchVideo := FVideoPlayer.LoadDll;
 
   FSortPreference := TConfigSorting.Create(Self);
   FSortPreference.OnSort := OnSort;
@@ -375,6 +379,7 @@ end;
 
 procedure TStart.OnClose(Sender: TObject; var Action: TCloseAction);
 begin
+  FVideoPlayer.FreeDll;
   FDelayCall.Free;
   FFileCopy.Free;
   FQueue.Free;
@@ -508,6 +513,9 @@ begin
     if (Row >= Grid.Selection.Top   ) and
        (Row <= Grid.Selection.Bottom) then begin
 
+      if not FCanWatchVideo then
+        DoWatchThisVideo.Enabled := NON
+      else
       if IsMultipleRowSelected(Grid.Selection.Top, Grid.Selection.Bottom) then
         DoWatchThisVideo.Enabled := NON
       else
