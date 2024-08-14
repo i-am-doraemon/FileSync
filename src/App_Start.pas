@@ -445,6 +445,8 @@ end;
 procedure TStart.OnComparingFolders(Sender: TObject; FileName: string; Nth, Total: Integer);
 begin
   FShowHashProgress.Description := Format('(%d/%d) 「%s」のハッシュ値を計算中です...', [Nth, Total, FileName]);
+  if Total > 0 then
+    FShowHashProgress.Position := Round(100.0 * Nth / Total);
 end;
 
 procedure TStart.OnDoneCompareFolders(Sender: TObject; IdenticalA,
