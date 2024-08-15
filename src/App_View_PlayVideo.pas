@@ -136,6 +136,20 @@ begin
   if FModule <> 0 then
     FreeLibrary(FModule);
   FModule := 0;
+
+  MyVideoInitialize := nil;
+  MyVideoGetCodecId := nil;
+
+  MyVideoCreateM2tsPipeline := nil;
+  MyVideoCreateH264Pipeline := nil;
+  MyVideoCreateH265Pipeline := nil;
+  MyVideoDeletePipeline := nil;
+
+  MyVideoPlayback := nil;
+  MyVideoStop := nil;
+
+  MyVideoGetDuration := nil;
+  MyVideoGetPosition := nil;
 end;
 
 function TPlayVideo.ToHhmmssFormat(Seconds: Integer): string;
