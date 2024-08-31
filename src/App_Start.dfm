@@ -25,8 +25,6 @@ object Start: TStart
     TabOrder = 0
     OnDrawCell = OnDrawCell
     OnMouseDown = OnMouseDown
-    ExplicitWidth = 536
-    ExplicitHeight = 400
   end
   object StatusBar: TStatusBar
     Left = 0
@@ -35,8 +33,6 @@ object Start: TStart
     Height = 19
     Panels = <>
     SimplePanel = True
-    ExplicitTop = 400
-    ExplicitWidth = 536
   end
   object MainMenu: TMainMenu
     Left = 496

@@ -20,8 +20,6 @@ object OpenFolder: TOpenFolder
     Height = 202
     Align = alClient
     TabOrder = 0
-    ExplicitWidth = 496
-    ExplicitHeight = 201
     object Folder1Label: TLabel
       Left = 16
       Top = 16
@@ -96,12 +94,20 @@ object OpenFolder: TOpenFolder
       TabOrder = 6
       OnClick = OnDoExchangeFolders
     end
+    object DoIncludeSubfolders: TCheckBox
+      Left = 16
+      Top = 138
+      Width = 113
+      Height = 17
+      Caption = #12469#12502#12501#12457#12523#12480#12434#21547#12416
+      TabOrder = 7
+    end
   end
   object DoShowFolderChooser: TFileOpenDialog
     FavoriteLinks = <>
     FileTypes = <>
     Options = [fdoPickFolders]
-    Left = 56
+    Left = 240
     Top = 152
   end
 end

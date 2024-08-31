@@ -92,10 +92,12 @@ type
   end;
 
   TFolderComparisonProgressEvent = reference to procedure(Sender: TObject; FileName: string; Nth, Total: Integer);
-  TFolderComparisonCompleteEvent = reference to procedure(Sender: TObject; IdenticalA, IdenticalB, Left, Right: TList<TFileMeta>);
+  TFolderComparisonCompleteEvent = reference to procedure(Sender: TObject);
 
   TFolderComparator = class(TObject)
   private
+    FRecursive: Boolean;
+
     FFolderA: string;
     FFolderB: string;
 
@@ -117,13 +119,6 @@ type
 
     FMaxReadSize: Int64;
 
-    // 比較結果
-
-    FIdenticalL: TList<TFileMeta>; // 同一(左側)
-    FIdenticalR: TList<TFileMeta>; // 同一(右側)
-    FOnlyL: TList<TFileMeta>;      // 左のみ
-    FOnlyR: TList<TFileMeta>;      // 右のみ
-
     // イベント
 
     FFolderComparisonProgressEvent: TFolderComparisonProgressEvent;
@@ -132,7 +127,7 @@ type
     function Remake(X: TFileMeta; var Count: Integer): TFileMeta;
     function GetTotal: Integer;
 
-    procedure Categorize;
+    procedure Categorize(IdenticalA, IdenticalB, OnlyA, OnlyB: TList<TFileMeta>);
     procedure Join;
 
     procedure SetUpNextDigestA;
@@ -145,7 +140,7 @@ type
     procedure OnHashCompleteB(Sender: TObject; Digest: string);
 
   public
-    constructor Create(Folder1, Folder2: string);
+    constructor Create(Folder1, Folder2: string; Recursive: Boolean);
     destructor Destroy; override;
 
     function CompareAsync(FolderComparisonCompleteEvent: TFolderComparisonCompleteEvent): Boolean;
@@ -363,7 +358,7 @@ begin
   Self.Size := Size;
 end;
 
-constructor TFolderComparator.Create(Folder1, Folder2: string);
+constructor TFolderComparator.Create(Folder1, Folder2: string; Recursive: Boolean);
 const
   QUEUE_SIZE = 16;
   DEFAULT_READ_SIZE = 1 * 1024 * 1024; // バイト
@@ -375,6 +370,8 @@ begin
   FFileDigestsA := TList<TFileMeta>.Create;
   FFileDigestsB := TList<TFileMeta>.Create;
 
+  FRecursive := Recursive;
+
   FFileNamesA := TQueue<string>.Create;
   FFileNamesB := TQueue<string>.Create;
 
@@ -385,12 +382,6 @@ begin
 
   FDelayCallA := TDelayCall.Create(SetUpNextDigestA);
   FDelayCallB := TDelayCall.Create(SetUpNextDigestB);
-
-  FIdenticalL := TList<TFileMeta>.Create;
-  FIdenticalR := TList<TFileMeta>.Create;
-
-  FOnlyL := TList<TFileMeta>.Create;
-  FOnlyR := TList<TFileMeta>.Create;
 
   FMaxReadSize := DEFAULT_READ_SIZE;
 end;
@@ -405,25 +396,14 @@ begin
   FFileDigestsA.Free;
   FFileDigestsB.Free;
 
-  FIdenticalL.Free;
-  FIdenticalR.Free;
-
-  FOnlyL.Free;
-  FOnlyR.Free;
-
   FFileNamesA.Free;
   FFileNamesB.Free;
 
   FBlockingQueue.Free;
 end;
 
-procedure TFolderComparator.Categorize;
+procedure TFolderComparator.Categorize(IdenticalA, IdenticalB, OnlyA, OnlyB: TList<TFileMeta>);
 begin
-  FIdenticalL.Clear;
-  FIdenticalR.Clear;
-  FOnlyL.Clear;
-  FOnlyR.Clear;
-
   var Count := 0;
 
   for var A in FFileDigestsA do begin
@@ -435,8 +415,8 @@ begin
       L.FIdNo := Count;
       R.FIdNo := Count;
 
-      FIdenticalL.Add(L);
-      FIdenticalR.Add(R);
+      IdenticalA.Add(L);
+      IdenticalB.Add(R);
       Inc(Count);
     end;
   end;
@@ -450,7 +430,7 @@ begin
       Found := True;
   end;
     if not Found then
-      FOnlyL.Add(Remake(A, Count));
+      OnlyA.Add(Remake(A, Count));
   end;
 
   // 右はあるが左はない場合
@@ -461,10 +441,8 @@ begin
       Found := True;
   end;
     if not Found then
-      FOnlyR.Add(Remake(B, Count));
+      OnlyB.Add(Remake(B, Count));
   end;
-
-  FFolderComparisonCompleteEvent(Self, FIdenticalL, FIdenticalR, FOnlyL, FOnlyR);
 end;
 
 procedure TFolderComparator.Join;
@@ -537,11 +515,9 @@ begin
     FDoCalcHash.Start;
   end else begin
     Join;
-    Categorize;
     if Assigned(FFolderComparisonCompleteEvent) then
-      FFolderComparisonCompleteEvent(Self, FIdenticalL,
-                                           FIdenticalR, FOnlyL, FOnlyR);
-      CalculatingNow := False;
+      FFolderComparisonCompleteEvent(Self);
+    CalculatingNow := False;
   end;
 end;
 
@@ -598,10 +574,17 @@ function TFolderComparator.CreateComparisonResult: TComparisonResult;
 var
   Total, I, J: Integer;
 begin
-  Total := FIdenticalL.Count + Self.FOnlyL.Count
-                             + Self.FOnlyR.Count;
-  Result.Total := Total;
+  var OnlyA := TList<TFileMeta>.Create;
+  var OnlyB := TList<TFileMeta>.Create;
 
+  var IdenticalA := TList<TFileMeta>.Create;
+  var IdenticalB := TList<TFileMeta>.Create;
+
+  Categorize(IdenticalA, IdenticalB, OnlyA, OnlyB);
+
+  Total := IdenticalA.Count + OnlyA.Count
+                            + OnlyB.Count;
+  Result.Total := Total;
   Result.FolderA := FFolderA;
   Result.FolderB := FFolderB;
 
@@ -610,40 +593,30 @@ begin
   I := 0;
   J := 0;
 
-  while I < FIdenticalL.Count do begin
-    Result.FileComparisonList[J] := TFileComparison.Create(FIdenticalL[I].IdNo,
-                                                          '同一',
-                                                          FIdenticalL[I].Hash,
-                                                          FIdenticalL[I].Name,
-                                                          FIdenticalR[I].Name,
-                                                          FIdenticalL[I].Size);
+  while I < IdenticalA.Count do begin
+    Result.FileComparisonList[J] := TFileComparison.Create(IdenticalA[I].IdNo, '同一', IdenticalA[I].Hash, IdenticalA[I].Name, IdenticalB[I].Name, IdenticalA[I].Size);
     Inc(I);
     Inc(J);
   end;
 
   I := 0;
-  while I < FOnlyL.Count do begin
-    Result.FileComparisonList[J] := TFileComparison.Create(FOnlyL[I].IdNo,
-                                                           '左側のみ',
-                                                           FOnlyL[I].Hash,
-                                                           FOnlyL[I].Name,
-                                                           '',
-                                                           FOnlyL[I].Size);
+  while I < OnlyA.Count do begin
+    Result.FileComparisonList[J] := TFileComparison.Create(OnlyA[I].IdNo, '左側のみ', OnlyA[I].Hash, OnlyA[I].Name, '', OnlyA[I].Size);
     Inc(I);
     Inc(J);
   end;
 
   I := 0;
-  while I < FOnlyR.Count do begin
-    Result.FileComparisonList[J] := TFileComparison.Create(FOnlyR[I].IdNo,
-                                                           '右側のみ',
-                                                           FOnlyR[I].Hash,
-                                                           '',
-                                                           FOnlyR[I].Name,
-                                                           FOnlyR[I].Size);
+  while I < OnlyB.Count do begin
+    Result.FileComparisonList[J] := TFileComparison.Create(OnlyB[I].IdNo, '右側のみ', OnlyB[I].Hash, '', OnlyB[I].Name, OnlyB[I].Size);
     Inc(I);
     Inc(J);
   end;
+
+  OnlyA.Free;
+  OnlyB.Free;
+  IdenticalA.Free;
+  IdenticalB.Free;
 end;
 
 function TFolderComparator.Remake(X: TFileMeta; var Count: Integer): TFileMeta;
@@ -692,6 +665,8 @@ begin
 end;
 
 function TFolderComparator.CompareASync(FolderComparisonCompleteEvent: TFolderComparisonCompleteEvent): Boolean;
+var
+  Option: TSearchOption;
 begin
   if CalculatingNow then
     raise Exception.Create('既に比較中です。');
@@ -701,17 +676,19 @@ begin
   FFileNamesA.Clear;
   FFileNamesB.Clear;
 
-  for var Each in TDirectory.GetFiles(FFolderA) do FFileNamesA.Enqueue(Each);
-  for var Each in TDirectory.GetFiles(FFolderB) do FFileNamesB.Enqueue(Each);
+  if FRecursive then
+    Option := TSearchOption.soAllDirectories
+  else
+    Option := TSearchOption.soTopDirectoryOnly;
+
+  var FilesA := TDirectory.GetFiles(FFolderA, '*', Option);
+  var FilesB := TDirectory.GetFiles(FFolderB, '*', Option);
+
+  for var Each in FilesA do FFileNamesA.Enqueue(Each);
+  for var Each in FilesB do FFileNamesB.Enqueue(Each);
 
   FFileDigestsA.Clear;
   FFileDigestsB.Clear;
-
-  FIdenticalL.Clear;
-  FIdenticalR.Clear;
-
-  FOnlyL.Clear;
-  FOnlyR.Clear;
 
   CalculatingNow := True;
   FDelayCallA.Schedule(8);

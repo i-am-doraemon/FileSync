@@ -96,9 +96,9 @@ type
     procedure OnCancelFileCopy(Sender: TObject);
     procedure OnFailedFileCopy(Sender: TObject);
     procedure OnCancelHashCalc(Sender: TObject);
-    procedure OnCompare(Sender: TObject; Folder1, Folder2: string);
+    procedure OnCompare(Sender: TObject; Folder1, Folder2: string; Recursive: Boolean);
     procedure OnComparingFolders(Sender: TObject; FileName: string; Nth, Total: Integer);
-    procedure OnDoneCompareFolders(Sender: TObject; IdenticalA, IdenticalB, Left, Right: TList<TFileMeta>);
+    procedure OnDoneCompareFolders(Sender: TObject);
   public
     { Public 宣言 }
     constructor Create(Owner: TComponent); override;
@@ -269,6 +269,39 @@ begin
 end;
 
 procedure TStart.SetGrid(ComparisonResult: TComparisonResult);
+  /// <summary>指定したフォルダ名の末尾にフォルダの区切り記号があるかどうかを返す。</summary>
+  /// <param name="Folder">フォルダ名</param>
+  /// <returns>フォルダ名の末尾にフォルダの区切り記号があれば真、そうでなければ偽。</returns>
+  function HasDirSeparatorAtEnd(Folder: string): Boolean;
+  begin
+    Result := Folder[Folder.Length] =
+                            TPath.DirectorySeparatorChar;
+  end;
+
+  /// <summary>指定したパス名の先頭が指定したパス名であるかどうかを返す。</summary>
+  /// <param name="FullPath">フルパス名</param>
+  /// <param name="TopDir">フルパスの先頭からの部分パス名</param>
+  /// <returns>フルパスの先頭に部分パスがあれば真、そうでなければ偽</returns>
+  function MatchThePrefix(FullPath, TopDir: string): Boolean;
+  begin
+    Result := FullPath.IndexOf(TopDir, 0, TopDir.Length) = 0;
+  end;
+
+  /// <summary>指定したパス名を起点とする相対パスへ絶対パスを変換する。</summary>
+  /// <param name="FullPath">絶対パス名</param>
+  /// <param name="TopDir">新しく起点とするパス名</param>
+  /// <returns>指定したパス名を新たな起点とする相対パス名</returns>
+  function ExcludeTopDir(FullPath, TopDir: string): string;
+  begin
+    if MatchThePrefix(FullPath, TopDir) then
+      if HasDirSeparatorAtEnd(TopDir) then
+        Result := FullPath.Substring(TopDir.Length + 0)
+      else
+        Result := FullPath.Substring(TopDir.Length + 1)
+    else
+      Result := FullPath;
+  end;
+
 begin
   Grid.RowCount := ComparisonResult.Total + 1;
 
@@ -279,8 +312,8 @@ begin
   for var Each in ComparisonResult.FileComparisonList do begin
     Grid.Cells[0, I] := Each.Unique.ToString;
     Grid.Cells[1, I] := Each.Result;
-    Grid.Cells[2, I] := TPath.GetFileName(Each.FileNameA);
-    Grid.Cells[3, I] := TPath.GetFileName(Each.FileNameB);
+    Grid.Cells[2, I] := ExcludeTopDir(Each.FileNameA, ComparisonResult.FolderA);
+    Grid.Cells[3, I] := ExcludeTopDir(Each.FileNameB, ComparisonResult.FolderB);
     Grid.Cells[4, I] := Each.Size.ToString;
     Grid.Cells[5, I] := Each.Sha256;
     Inc(I);
@@ -449,15 +482,14 @@ begin
     FShowHashProgress.Position := Round(100.0 * Nth / Total);
 end;
 
-procedure TStart.OnDoneCompareFolders(Sender: TObject; IdenticalA,
-                                                       IdenticalB, Left, Right: TList<TFileMeta>);
+procedure TStart.OnDoneCompareFolders(Sender: TObject);
 begin
   SetGrid(FFolderComparator.CreateComparisonResult);
   StatusBar.SimpleText := string.Empty;
   FShowHashProgress.ModalResult := mrOk;
 end;
 
-procedure TStart.OnCompare(Sender: TObject; Folder1, Folder2: string);
+procedure TStart.OnCompare(Sender: TObject; Folder1, Folder2: string; Recursive: Boolean);
 const
   INI_FILE_EXTENSION = '.ini';
 begin
@@ -465,7 +497,7 @@ begin
   Grid.Cells[3, 0] := Folder2;
 
   FFolderComparator.Free;
-  FFolderComparator := TFolderComparator.Create(Folder1, Folder2);
+  FFolderComparator := TFolderComparator.Create(Folder1, Folder2, Recursive);
   FFolderComparator.OnProgress := OnComparingFolders;
 
   var IniFile := TIniFile.Create(ChangeFileExt(Application.ExeName, INI_FILE_EXTENSION));

@@ -16,7 +16,7 @@ uses
   Vcl.StdCtrls;
 
 type
-  TCompareEvent = reference to procedure(Sender: TObject; Folder1, Folder2: string);
+  TCompareEvent = reference to procedure(Sender: TObject; Folder1, Folder2: string; Recursive: Boolean);
 
   TOpenFolder = class(TForm)
     Panel: TPanel;
@@ -34,6 +34,7 @@ type
 
     DoShowFolderChooser: TFileOpenDialog;
     DoExchangeFolders: TButton;
+    DoIncludeSubfolders: TCheckBox;
 
     procedure OnDoOpenFolderChooser1(Sender: TObject);
     procedure OnDoOpenFolderChooser2(Sender: TObject);
@@ -87,7 +88,7 @@ end;
 procedure TOpenFolder.OnDoCompare(Sender: TObject);
 begin
   if Assigned(FOnCompare) then
-    FOnCompare(Self, DoInput1stFolder.Text, DoInput2ndFolder.Text);
+    FOnCompare(Self, DoInput1stFolder.Text, DoInput2ndFolder.Text, DoIncludeSubfolders.Checked);
 end;
 
 procedure TOpenFolder.OnDoExchangeFolders(Sender: TObject);
